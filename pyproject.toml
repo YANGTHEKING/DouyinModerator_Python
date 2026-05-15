@@ -1,0 +1,19 @@
+[project]
+name = "douyin-mod-manager"
+version = "0.1.0"
+description = "Local PySide6 prototype for a virtual streamer room moderation assistant."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "PySide6>=6.7",
+]
+
+[project.scripts]
+douyin-mod-manager = "douyin_mod_manager.app:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["douyin_mod_manager*"]

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>DMM Demo Live Room</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f7f7f4;
+      color: #202124;
+    }
+    header {
+      padding: 16px 18px;
+      background: #242424;
+      color: white;
+    }
+    main {
+      display: grid;
+      grid-template-rows: 1fr auto;
+      height: calc(100vh - 58px);
+    }
+    #feed {
+      overflow: auto;
+      padding: 14px;
+    }
+    .item {
+      margin-bottom: 10px;
+      padding: 10px 12px;
+      border: 1px solid #d8d8d4;
+      border-radius: 6px;
+      background: white;
+    }
+    .username {
+      font-weight: 700;
+      margin-right: 8px;
+    }
+    .content {
+      color: #3d3d3d;
+    }
+    footer {
+      display: flex;
+      gap: 8px;
+      padding: 12px;
+      border-top: 1px solid #d8d8d4;
+      background: #fff;
+    }
+    [data-dmm-chat-input] {
+      flex: 1;
+      padding: 9px 10px;
+      border: 1px solid #c5c5c0;
+      border-radius: 5px;
+      font-size: 14px;
+    }
+    button {
+      padding: 9px 12px;
+      border: 1px solid #333;
+      border-radius: 5px;
+      background: #333;
+      color: white;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <header>虚拟主播直播间 Demo</header>
+  <main>
+    <section id="feed"></section>
+    <footer>
+      <input data-dmm-chat-input placeholder="这里模拟页面弹幕输入框">
+      <button data-dmm-send>发送</button>
+    </footer>
+  </main>
+  <script>
+    const feed = document.querySelector("#feed");
+    const samples = [
+      { type: "chat", user: "小葵", text: "主播唱得好稳" },
+      { type: "chat", user: "阿澈", text: "点歌 稻香" },
+      { type: "gift", user: "星野", text: "送出 小心心 x3" },
+      { type: "follow", user: "路过听歌", text: "关注了主播" },
+      { type: "user_enter", user: "Mika", text: "进入直播间" },
+      { type: "chat", user: "今天也想点歌", text: "不要带节奏，听歌就好" }
+    ];
+
+    function appendEvent(event) {
+      const item = document.createElement("div");
+      item.className = "item chat-item";
+      item.dataset.dmmEvent = "1";
+      item.dataset.dmmType = event.type;
+      item.innerHTML = `
+        <span class="username" data-dmm-username>${event.user}</span>
+        <span class="content" data-dmm-content>${event.text}</span>
+      `;
+      feed.appendChild(item);
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    document.querySelector("[data-dmm-send]").addEventListener("click", () => {
+      const input = document.querySelector("[data-dmm-chat-input]");
+      const text = input.value.trim();
+      if (!text) return;
+      appendEvent({ type: "chat", user: "房管助手", text });
+      input.value = "";
+    });
+
+    let index = 0;
+    setInterval(() => {
+      appendEvent(samples[index % samples.length]);
+      index += 1;
+    }, 1400);
+  </script>
+</body>
+</html>

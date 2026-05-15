@@ -1,0 +1,35 @@
+{
+  "event_containers": [
+    "[data-dmm-event]",
+    ".webcast-chatroom___item",
+    ".chat-item",
+    ".comment-item",
+    ".message-item"
+  ],
+  "username_selectors": [
+    "[data-dmm-username]",
+    ".username",
+    ".user-name",
+    ".nickname",
+    ".name"
+  ],
+  "content_selectors": [
+    "[data-dmm-content]",
+    ".content",
+    ".message",
+    ".comment",
+    ".text"
+  ],
+  "chat_input_selectors": [
+    "[data-dmm-chat-input]",
+    "textarea",
+    "input[type='text']",
+    "[contenteditable='true']"
+  ],
+  "send_button_selectors": [
+    "[data-dmm-send]",
+    "button[type='submit']",
+    "button.send",
+    ".send-button"
+  ]
+}
