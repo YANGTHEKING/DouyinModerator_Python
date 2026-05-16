@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QUrl, Qt
+from PySide6.QtCore import QTimer
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QComboBox,
@@ -56,6 +57,7 @@ class MainWindow(QMainWindow):
         self.gift_strategy = GiftThanksStrategy()
         self.limiter = SlidingWindowLimiter(max_events=3, window_seconds=60)
         self.auto_paused = False
+        self._pending_action_by_text: dict[str, ActionProposal] = {}
         self.source = None
 
         self.setWindowTitle("抖音虚拟主播房管管理器 - 本地原型")
@@ -66,6 +68,9 @@ class MainWindow(QMainWindow):
         self.mock_sender = MockMessageSender()
         self.web_sender = WebEngineMessageSender(self.web_view.page())
         self.sender = self.mock_sender
+        self.login_status_timer = QTimer(self)
+        self.login_status_timer.setInterval(5000)
+        self.login_status_timer.timeout.connect(self.web_sender.refresh_sendability)
 
         self._connect_signals()
         self._activate_mock_source()
@@ -117,11 +122,17 @@ class MainWindow(QMainWindow):
         self.load_url_button = QPushButton("加载")
         self.load_demo_button = QPushButton("Demo")
         self.start_dom_button = QPushButton("启动观察")
+        self.check_login_button = QPushButton("检测登录")
         controls.addWidget(self.url_input, 1)
         controls.addWidget(self.load_url_button)
         controls.addWidget(self.load_demo_button)
         controls.addWidget(self.start_dom_button)
+        controls.addWidget(self.check_login_button)
         layout.addLayout(controls)
+
+        self.login_status_label = QLabel("发送状态：未检测")
+        self.login_status_label.setStyleSheet("color: #666;")
+        layout.addWidget(self.login_status_label)
 
         self.web_view = QWebEngineView()
         self.web_view.setHtml(
@@ -190,8 +201,10 @@ class MainWindow(QMainWindow):
         self.web_source.status_changed.connect(self.statusBar().showMessage)
         self.mock_sender.sent.connect(lambda text: self.statusBar().showMessage(f"Mock 已发送：{text}"))
         self.web_sender.sent.connect(lambda text: self.statusBar().showMessage(f"WebEngine 已发送：{text}"))
-        self.web_sender.failed.connect(lambda reason: self.statusBar().showMessage(f"WebEngine 发送失败：{reason}"))
-        self.web_view.loadFinished.connect(lambda ok: self.web_source.reinstall() if ok else None)
+        self.web_sender.sent.connect(self.on_web_sent)
+        self.web_sender.failed.connect(self.on_web_failed)
+        self.web_sender.sendability_changed.connect(self.on_sendability_changed)
+        self.web_view.loadFinished.connect(self.on_web_load_finished)
         self.mode_combo.currentIndexChanged.connect(self.on_mode_changed)
         self.source_combo.currentIndexChanged.connect(self.on_source_changed)
         self.pause_button.toggled.connect(self.on_pause_toggled)
@@ -199,6 +212,7 @@ class MainWindow(QMainWindow):
         self.load_url_button.clicked.connect(self.load_web_url)
         self.load_demo_button.clicked.connect(self.load_demo_page)
         self.start_dom_button.clicked.connect(self._activate_web_source)
+        self.check_login_button.clicked.connect(self.web_sender.refresh_sendability)
         self.send_selected_button.clicked.connect(self.send_selected_action)
         self.discard_selected_button.clicked.connect(self.discard_selected_action)
         self.send_quick_button.clicked.connect(self.send_quick_reply)
@@ -220,9 +234,12 @@ class MainWindow(QMainWindow):
 
     def _activate_mock_source(self) -> None:
         self.web_source.stop()
+        self.login_status_timer.stop()
         self.mock_source.start()
         self.source = self.mock_source
         self.sender = self.mock_sender
+        self.login_status_label.setText("发送状态：模拟发送可用")
+        self.login_status_label.setStyleSheet("color: #267a36;")
         self.source_combo.blockSignals(True)
         self.source_combo.setCurrentIndex(0)
         self.source_combo.blockSignals(False)
@@ -231,12 +248,37 @@ class MainWindow(QMainWindow):
     def _activate_web_source(self) -> None:
         self.mock_source.stop()
         self.web_source.start()
+        self.web_sender.refresh_sendability()
+        self.login_status_timer.start()
         self.source = self.web_source
         self.sender = self.web_sender
         self.source_combo.blockSignals(True)
         self.source_combo.setCurrentIndex(1)
         self.source_combo.blockSignals(False)
         self.statusBar().showMessage("已切换到 WebEngine DOM 观察源")
+
+    def on_web_load_finished(self, ok: bool) -> None:
+        if not ok:
+            self.login_status_label.setText("发送状态：页面加载失败")
+            self.login_status_label.setStyleSheet("color: #b42318;")
+            return
+        self.web_source.reinstall()
+        self.web_sender.refresh_sendability()
+
+    def on_sendability_changed(self, can_send: bool, reason: str) -> None:
+        prefix = "可发送" if can_send else "不可发送"
+        color = "#267a36" if can_send else "#b42318"
+        self.login_status_label.setText(f"发送状态：{prefix} - {reason}")
+        self.login_status_label.setStyleSheet(f"color: {color};")
+
+    def on_web_sent(self, text: str) -> None:
+        self.statusBar().showMessage(f"WebEngine 已发送：{text}")
+        proposal = self._pending_action_by_text.pop(text, None)
+        if proposal is not None:
+            self.database.save_action(self.session.id, proposal, sent=True)
+
+    def on_web_failed(self, reason: str) -> None:
+        self.statusBar().showMessage(f"WebEngine 发送失败：{reason}")
 
     def load_web_url(self) -> None:
         raw_url = self.url_input.text().strip()
@@ -313,9 +355,16 @@ class MainWindow(QMainWindow):
     def _try_send(self, proposal: ActionProposal) -> bool:
         if self.auto_paused:
             return False
+        if self.sender is self.web_sender and not self.web_sender.can_send:
+            self.statusBar().showMessage(f"WebEngine 当前不可发送：{self.web_sender.status_reason}")
+            self.web_sender.refresh_sendability()
+            return False
         if not self.limiter.allow():
             self.statusBar().showMessage("全局限频生效：本分钟自动发送额度已用完")
             return False
+        if self.sender is self.web_sender:
+            self._pending_action_by_text[proposal.text] = proposal
+            return self.sender.send(proposal.text)
         sent = self.sender.send(proposal.text)
         if sent:
             self.database.save_action(self.session.id, proposal, sent=True)
@@ -370,6 +419,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self.mock_source.stop()
         self.web_source.stop()
+        self.login_status_timer.stop()
         self.session.end()
         self.database.save_session(self.session)
         super().closeEvent(event)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
+from pathlib import Path
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWebEngineCore import QWebEnginePage
@@ -8,6 +10,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage
 from douyin_mod_manager.core.events import EventType, LiveEvent
 from douyin_mod_manager.sources.base import EventSource
 from douyin_mod_manager.sources.dom_config import DomSelectorConfig
+from douyin_mod_manager.sources.dom_parser import normalize_dom_record
 
 
 class WebEngineDomEventSource(EventSource):
@@ -23,6 +26,7 @@ class WebEngineDomEventSource(EventSource):
         self.poll_timer.timeout.connect(self._poll_events)
         self._seen_keys: set[str] = set()
         self._enabled = False
+        self.audit_path = Path(__file__).resolve().parents[2] / "data" / "dom_parse_audit.jsonl"
 
     def start(self) -> None:
         self._enabled = True
@@ -58,12 +62,24 @@ class WebEngineDomEventSource(EventSource):
             return "";
           }};
 
+          const mediaLabels = (root) => {{
+            const labels = [];
+            root.querySelectorAll?.("img, svg, [aria-label], [title], [alt]").forEach((node) => {{
+              for (const attr of ["alt", "title", "aria-label"]) {{
+                const value = node.getAttribute?.(attr);
+                if (value && String(value).trim()) labels.push(String(value).trim());
+              }}
+            }});
+            return [...new Set(labels)];
+          }};
+
           const inferType = (node, text) => {{
             const explicit = node.dataset?.dmmType || node.getAttribute?.("data-type") || "";
             if (explicit) return explicit;
             if (/送出|礼物|gift/i.test(text)) return "gift";
             if (/关注/.test(text)) return "follow";
             if (/进入|来了|进场/.test(text)) return "user_enter";
+            if (/为主播点赞了|推荐直播给Ta的朋友/.test(text)) return "system";
             if (/系统|提示|直播间/.test(text)) return "system";
             return "chat";
           }};
@@ -81,12 +97,14 @@ class WebEngineDomEventSource(EventSource):
               const username = firstText(item, config.usernameSelectors);
               const content = firstText(item, config.contentSelectors) || text.replace(username, "").trim() || text;
               const type = inferType(item, text);
+              const labels = mediaLabels(item);
               window.__dmmEvents.push({{
                 type,
                 username,
                 content,
                 raw: {{
                   text,
+                  mediaLabels: labels,
                   url: location.href,
                   className: item.className || "",
                   tagName: item.tagName || ""
@@ -131,17 +149,21 @@ class WebEngineDomEventSource(EventSource):
         for record in records:
             if not isinstance(record, dict):
                 continue
-            key = f"{record.get('type')}|{record.get('username')}|{record.get('content')}"
+            parsed = normalize_dom_record(record)
+            if parsed is None:
+                self._write_audit(record, None)
+                continue
+            key = f"{parsed.type}|{parsed.username}|{parsed.content}"
             if key in self._seen_keys:
                 continue
             self._seen_keys.add(key)
-            raw = record.get("raw") if isinstance(record.get("raw"), dict) else {}
+            self._write_audit(record, parsed)
             event = LiveEvent(
-                type=self._event_type(record.get("type")),
+                type=self._event_type(parsed.type),
                 session_id=self.session_id,
-                username=str(record.get("username") or "") or None,
-                content=str(record.get("content") or "") or None,
-                raw=raw,
+                username=parsed.username,
+                content=parsed.content,
+                raw=parsed.raw,
                 source="webengine_dom",
             )
             self.event_received.emit(event)
@@ -152,3 +174,33 @@ class WebEngineDomEventSource(EventSource):
             return EventType(str(value))
         except ValueError:
             return EventType.CHAT
+
+    def _write_audit(self, record: dict, parsed: object | None) -> None:
+        raw = record.get("raw") if isinstance(record.get("raw"), dict) else {}
+        parsed_payload = None
+        if parsed is not None:
+            parsed_payload = {
+                "type": getattr(parsed, "type", None),
+                "username": getattr(parsed, "username", None),
+                "content": getattr(parsed, "content", None),
+                "gift_name": getattr(parsed, "raw", {}).get("gift_name"),
+                "gift_count": getattr(parsed, "raw", {}).get("gift_count"),
+            }
+        payload = {
+            "at": datetime.now(timezone.utc).isoformat(),
+            "source": "webengine_dom",
+            "raw": {
+                "type": record.get("type"),
+                "username": record.get("username"),
+                "content": record.get("content"),
+                "text": raw.get("text"),
+                "mediaLabels": raw.get("mediaLabels"),
+                "className": raw.get("className"),
+                "tagName": raw.get("tagName"),
+                "url": raw.get("url"),
+            },
+            "parsed": parsed_payload,
+        }
+        self.audit_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.audit_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")

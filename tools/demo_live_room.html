@@ -77,16 +77,34 @@
       { type: "chat", user: "小葵", text: "主播唱得好稳" },
       { type: "chat", user: "阿澈", text: "点歌 稻香" },
       { type: "gift", user: "星野", text: "送出 小心心 x3" },
+      { type: "gift-plain", user: "大叔", gift: "啤酒", count: 3 },
       { type: "follow", user: "路过听歌", text: "关注了主播" },
       { type: "user_enter", user: "Mika", text: "进入直播间" },
-      { type: "chat", user: "今天也想点歌", text: "不要带节奏，听歌就好" }
+      { type: "chat", user: "今天也想点歌", text: "不要带节奏，听歌就好" },
+      { type: "plain", user: "大叔", text: "你好" }
     ];
 
     function appendEvent(event) {
       const item = document.createElement("div");
       item.className = "item chat-item";
       item.dataset.dmmEvent = "1";
-      item.dataset.dmmType = event.type;
+      item.dataset.dmmType = event.type === "plain" ? "chat" : event.type === "gift-plain" ? "gift" : event.type;
+      if (event.type === "plain") {
+        item.textContent = `${event.user}：${event.text}`;
+        feed.appendChild(item);
+        feed.scrollTop = feed.scrollHeight;
+        return;
+      }
+      if (event.type === "gift-plain") {
+        item.innerHTML = `
+          ${event.user} 送出
+          <span aria-label="【${event.gift}】" title="【${event.gift}】">🍺</span>
+          x${event.count}
+        `;
+        feed.appendChild(item);
+        feed.scrollTop = feed.scrollHeight;
+        return;
+      }
       item.innerHTML = `
         <span class="username" data-dmm-username>${event.user}</span>
         <span class="content" data-dmm-content>${event.text}</span>

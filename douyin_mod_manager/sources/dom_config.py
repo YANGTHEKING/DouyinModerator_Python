@@ -50,6 +50,16 @@ class DomSelectorConfig:
             ".send-button",
         ]
     )
+    login_indicator_selectors: list[str] = field(
+        default_factory=lambda: [
+            "[data-dmm-login-required]",
+            ".login",
+            ".login-panel",
+            ".login-modal",
+            ".douyin-login",
+            "button",
+        ]
+    )
 
     @classmethod
     def load(cls, path: Path | None = None) -> "DomSelectorConfig":
@@ -72,6 +82,7 @@ class DomSelectorConfig:
                 "contentSelectors": self.content_selectors,
                 "chatInputSelectors": self.chat_input_selectors,
                 "sendButtonSelectors": self.send_button_selectors,
+                "loginIndicatorSelectors": self.login_indicator_selectors,
             },
             ensure_ascii=False,
         )
