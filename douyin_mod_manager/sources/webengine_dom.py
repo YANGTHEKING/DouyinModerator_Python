@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWebEngineCore import QWebEnginePage
 
 from douyin_mod_manager.core.events import EventType, LiveEvent
@@ -15,6 +15,8 @@ from douyin_mod_manager.sources.dom_parser import normalize_dom_record
 
 class WebEngineDomEventSource(EventSource):
     """Read-only DOM observer for visible live-room events inside Qt WebEngine."""
+
+    parse_debug_received = Signal(object)
 
     def __init__(self, page: QWebEnginePage, session_id: str, config: DomSelectorConfig | None = None) -> None:
         super().__init__()
@@ -151,13 +153,13 @@ class WebEngineDomEventSource(EventSource):
                 continue
             parsed = normalize_dom_record(record)
             if parsed is None:
-                self._write_audit(record, None)
+                self._publish_parse_debug(record, None)
                 continue
             key = f"{parsed.type}|{parsed.username}|{parsed.content}"
             if key in self._seen_keys:
                 continue
             self._seen_keys.add(key)
-            self._write_audit(record, parsed)
+            self._publish_parse_debug(record, parsed)
             event = LiveEvent(
                 type=self._event_type(parsed.type),
                 session_id=self.session_id,
@@ -175,7 +177,12 @@ class WebEngineDomEventSource(EventSource):
         except ValueError:
             return EventType.CHAT
 
-    def _write_audit(self, record: dict, parsed: object | None) -> None:
+    def _publish_parse_debug(self, record: dict, parsed: object | None) -> None:
+        payload = self._build_audit_payload(record, parsed)
+        self.parse_debug_received.emit(payload)
+        self._write_audit(payload)
+
+    def _build_audit_payload(self, record: dict, parsed: object | None) -> dict:
         raw = record.get("raw") if isinstance(record.get("raw"), dict) else {}
         parsed_payload = None
         if parsed is not None:
@@ -201,6 +208,9 @@ class WebEngineDomEventSource(EventSource):
             },
             "parsed": parsed_payload,
         }
+        return payload
+
+    def _write_audit(self, payload: dict) -> None:
         self.audit_path.parent.mkdir(parents=True, exist_ok=True)
         with self.audit_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")

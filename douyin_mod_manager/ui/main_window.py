@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -163,6 +164,19 @@ class MainWindow(QMainWindow):
         for rule in self.rule_engine.rules:
             self.rule_list.addItem(f"{'开' if rule.enabled else '关'} | {rule.name} | {EVENT_LABELS[rule.event_type]}")
         tabs.addTab(self.rule_list, "规则")
+
+        debug_panel = QWidget()
+        debug_layout = QVBoxLayout(debug_panel)
+        self.parse_debug_table = QTableWidget(0, 5)
+        self.parse_debug_table.setHorizontalHeaderLabels(["时间", "原始类型", "原文", "媒体标签", "解析结果"])
+        self.parse_debug_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.parse_debug_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        debug_layout.addWidget(self.parse_debug_table, 2)
+        self.parse_debug_detail = QTextEdit()
+        self.parse_debug_detail.setReadOnly(True)
+        self.parse_debug_detail.setPlaceholderText("选择一条解析记录查看 raw / parsed JSON")
+        debug_layout.addWidget(self.parse_debug_detail, 1)
+        tabs.addTab(debug_panel, "解析调试")
         return tabs
 
     def _build_action_panel(self) -> QWidget:
@@ -199,6 +213,7 @@ class MainWindow(QMainWindow):
         self.mock_source.status_changed.connect(self.statusBar().showMessage)
         self.web_source.event_received.connect(self.on_event)
         self.web_source.status_changed.connect(self.statusBar().showMessage)
+        self.web_source.parse_debug_received.connect(self.on_parse_debug_received)
         self.mock_sender.sent.connect(lambda text: self.statusBar().showMessage(f"Mock 已发送：{text}"))
         self.web_sender.sent.connect(lambda text: self.statusBar().showMessage(f"WebEngine 已发送：{text}"))
         self.web_sender.sent.connect(self.on_web_sent)
@@ -216,6 +231,7 @@ class MainWindow(QMainWindow):
         self.send_selected_button.clicked.connect(self.send_selected_action)
         self.discard_selected_button.clicked.connect(self.discard_selected_action)
         self.send_quick_button.clicked.connect(self.send_quick_reply)
+        self.parse_debug_table.itemSelectionChanged.connect(self.on_parse_debug_selection_changed)
 
     @property
     def mode(self) -> LiveMode:
@@ -345,6 +361,44 @@ class MainWindow(QMainWindow):
             self.event_table.setItem(row, col, item)
         self.event_table.scrollToBottom()
 
+    def on_parse_debug_received(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+        parsed = payload.get("parsed") if isinstance(payload.get("parsed"), dict) else None
+        labels = raw.get("mediaLabels") if isinstance(raw.get("mediaLabels"), list) else []
+        parsed_summary = ""
+        if parsed:
+            parsed_summary = " | ".join(
+                str(value)
+                for value in [parsed.get("type"), parsed.get("username"), parsed.get("content")]
+                if value
+            )
+
+        row = self.parse_debug_table.rowCount()
+        self.parse_debug_table.insertRow(row)
+        values = [
+            datetime.now().strftime("%H:%M:%S"),
+            raw.get("type") or "",
+            raw.get("text") or raw.get("content") or "",
+            ", ".join(str(label) for label in labels),
+            parsed_summary or "未解析",
+        ]
+        for col, value in enumerate(values):
+            item = QTableWidgetItem(str(value))
+            item.setData(Qt.ItemDataRole.UserRole, payload)
+            self.parse_debug_table.setItem(row, col, item)
+        self.parse_debug_table.scrollToBottom()
+        self._trim_table(self.parse_debug_table, 300)
+
+    def on_parse_debug_selection_changed(self) -> None:
+        items = self.parse_debug_table.selectedItems()
+        if not items:
+            return
+        payload = items[0].data(Qt.ItemDataRole.UserRole)
+        if isinstance(payload, dict):
+            self.parse_debug_detail.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
+
     def _append_action(self, proposal: ActionProposal) -> None:
         self.database.save_action(self.session.id, proposal, sent=False)
         item = QListWidgetItem(f"[{proposal.rule_name}] {proposal.text}")
@@ -413,6 +467,8 @@ class MainWindow(QMainWindow):
             return
         self.database.clear_logs()
         self.event_table.setRowCount(0)
+        self.parse_debug_table.setRowCount(0)
+        self.parse_debug_detail.clear()
         self.action_list.clear()
         self.statusBar().showMessage("事件和动作日志已清空")
 
@@ -433,3 +489,8 @@ class MainWindow(QMainWindow):
             SongStatus.SKIPPED: "跳过",
             SongStatus.REJECTED: "拒绝",
         }[status]
+
+    @staticmethod
+    def _trim_table(table: QTableWidget, max_rows: int) -> None:
+        while table.rowCount() > max_rows:
+            table.removeRow(0)
