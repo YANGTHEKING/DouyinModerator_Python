@@ -79,8 +79,8 @@ class WebEngineDomEventSource(EventSource):
             const explicit = node.dataset?.dmmType || node.getAttribute?.("data-type") || "";
             if (explicit) return explicit;
             if (/送出|礼物|gift/i.test(text)) return "gift";
-            if (/关注/.test(text)) return "follow";
-            if (/进入|来了|进场/.test(text)) return "user_enter";
+            if (!/[：:]/.test(text) && /\\s+(关注了主播|关注主播|加入了粉丝团|成为了粉丝)\\s*$/.test(text)) return "follow";
+            if (!/[：:]/.test(text) && /\\s+(来了|进入直播间|进入了直播间|进场)\\s*$/.test(text)) return "user_enter";
             if (/为主播点赞了|推荐直播给Ta的朋友/.test(text)) return "system";
             if (/系统|提示|直播间/.test(text)) return "system";
             return "chat";

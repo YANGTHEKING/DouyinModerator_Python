@@ -30,8 +30,24 @@ def normalize_dom_record(record: dict) -> ParsedDomRecord | None:
 
     if event_type == "gift":
         username, content, raw = normalize_gift_fields(username, content, visible_text, raw)
+    elif event_type == "follow":
+        follow_username, follow_content = normalize_follow_fields(username, content or visible_text)
+        if follow_username and follow_content:
+            username, content = follow_username, follow_content
+        else:
+            split = split_chat_line(content or visible_text)
+            if split is not None:
+                event_type = "chat"
+                username, content = split
     elif event_type == "user_enter":
-        username, content = normalize_user_enter_fields(username, content or visible_text)
+        enter_username, enter_content = normalize_user_enter_fields(username, content or visible_text)
+        if enter_username and enter_content:
+            username, content = enter_username, enter_content
+        else:
+            split = split_chat_line(content or visible_text)
+            if split is not None:
+                event_type = "chat"
+                username, content = split
     elif event_type == "system":
         username, content = normalize_system_fields(username, content or visible_text)
 
@@ -40,11 +56,13 @@ def normalize_dom_record(record: dict) -> ParsedDomRecord | None:
         split = split_chat_line(split_source)
         if split is not None:
             username, content = split
-        elif raw.get("mediaLabels"):
+        else:
             username = split_username_prefix(split_source)
             labels = [str(label).strip() for label in raw.get("mediaLabels", []) if str(label).strip()]
             if labels:
                 content = " ".join(labels)
+            elif username:
+                content = chat_content_after_prefix(split_source)
 
     if username and content and content.startswith(username):
         stripped = content.removeprefix(username).strip()
@@ -85,6 +103,15 @@ def split_username_prefix(text: str | None) -> str | None:
     return username or None
 
 
+def chat_content_after_prefix(text: str | None) -> str | None:
+    if not text:
+        return None
+    match = CHAT_LINE_RE.match(_last_non_empty_line(text))
+    if not match:
+        return None
+    return match.group("content").strip() or None
+
+
 def normalize_gift_fields(
     username: str | None,
     content: str | None,
@@ -123,6 +150,20 @@ def normalize_user_enter_fields(username: str | None, content: str | None) -> tu
     if not match:
         return username, content
     return match.group("username").strip(), "进入直播间"
+
+
+def normalize_follow_fields(username: str | None, content: str | None) -> tuple[str | None, str | None]:
+    if username:
+        return username, content
+    if not content:
+        return username, content
+    match = re.match(
+        r"^\s*(?P<username>.+?)\s+(?P<action>关注了主播|关注主播|加入了粉丝团|成为了粉丝)\s*$",
+        _last_non_empty_line(content),
+    )
+    if not match:
+        return None, None
+    return match.group("username").strip(), match.group("action").strip()
 
 
 def normalize_system_fields(username: str | None, content: str | None) -> tuple[str | None, str | None]:

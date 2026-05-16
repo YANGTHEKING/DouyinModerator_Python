@@ -137,6 +137,69 @@ class DomParserTest(unittest.TestCase):
         self.assertEqual(parsed.username, "㿝氼223ᴶ ₛ")
         self.assertEqual(parsed.content, "推荐直播给Ta的朋友")
 
+    def test_recovers_chat_misclassified_as_follow(self) -> None:
+        parsed = normalize_dom_record(
+            {
+                "type": "follow",
+                "username": "",
+                "content": "九宝\n桃了个兔🐰 ᴶ ₛ：哥姐们，喜欢九叔的话点点关注",
+                "raw": {"text": "九宝\n桃了个兔🐰 ᴶ ₛ：哥姐们，喜欢九叔的话点点关注"},
+            }
+        )
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.type, "chat")
+        self.assertEqual(parsed.username, "桃了个兔🐰 ᴶ ₛ")
+        self.assertEqual(parsed.content, "哥姐们，喜欢九叔的话点点关注")
+
+    def test_parses_follow_action_name(self) -> None:
+        parsed = normalize_dom_record(
+            {
+                "type": "follow",
+                "username": "",
+                "content": "桃了个兔🐰 ᴶ ₛ 关注了主播",
+                "raw": {"text": "桃了个兔🐰 ᴶ ₛ 关注了主播"},
+            }
+        )
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.type, "follow")
+        self.assertEqual(parsed.username, "桃了个兔🐰 ᴶ ₛ")
+        self.assertEqual(parsed.content, "关注了主播")
+
+    def test_recovers_chat_misclassified_as_user_enter(self) -> None:
+        parsed = normalize_dom_record(
+            {
+                "type": "user_enter",
+                "username": "",
+                "content": "人 鱼：来了来了呀~",
+                "raw": {"text": "人 鱼：来了来了呀~"},
+            }
+        )
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.type, "chat")
+        self.assertEqual(parsed.username, "人 鱼")
+        self.assertEqual(parsed.content, "来了来了呀~")
+
+    def test_extracts_username_from_empty_chat_line(self) -> None:
+        parsed = normalize_dom_record(
+            {
+                "type": "chat",
+                "username": "",
+                "content": "畅月宝🍓：",
+                "raw": {"text": "畅月宝🍓："},
+            }
+        )
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.username, "畅月宝🍓")
+        self.assertEqual(parsed.content, "畅月宝🍓：")
+
 
 if __name__ == "__main__":
     unittest.main()
