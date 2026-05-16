@@ -112,6 +112,7 @@ class WebEngineMessageSender(MessageSender):
             return Boolean(node.disabled || node.getAttribute("aria-disabled") === "true" || node.classList.contains("disabled"));
           }};
           const textOf = (node) => String(node?.innerText || node?.textContent || node?.value || node?.placeholder || "").trim();
+          const loginTextPattern = /需先登[录陆]才能开始聊天|登[录陆]后.*(?:弹幕|聊天)|先登[录陆].*(?:弹幕|聊天)|未登[录陆]/i;
           const findFirst = (selectors, predicate = () => true) => {{
             for (const selector of selectors) {{
               for (const node of document.querySelectorAll(selector)) {{
@@ -120,10 +121,15 @@ class WebEngineMessageSender(MessageSender):
             }}
             return null;
           }};
+          const explicitLoginPrompt = Array.from(document.querySelectorAll("div, span, p, button, textarea, input, [contenteditable='true']"))
+            .find((node) => isVisible(node) && loginTextPattern.test(textOf(node)));
+          if (explicitLoginPrompt) {{
+            return {{ canSend: false, reason: `检测到未登录聊天框：${{textOf(explicitLoginPrompt).slice(0, 40)}}` }};
+          }}
           const loginIndicator = findFirst(loginSelectors, (node) => {{
             if (!isVisible(node)) return false;
             const text = textOf(node);
-            return /登录|登陆|验证码|扫码|手机号|未登录|未登陆|login|sign in/i.test(text);
+            return /验证码|扫码|手机号|未登录|未登陆|login|sign in/i.test(text);
           }});
           if (loginIndicator) {{
             return {{ canSend: false, reason: `检测到登录提示：${{textOf(loginIndicator).slice(0, 40)}}` }};

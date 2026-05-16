@@ -4,8 +4,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QUrl, Qt
+from PySide6.QtCore import QPoint, QUrl, Qt
 from PySide6.QtCore import QTimer
+from PySide6.QtTest import QTest
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QComboBox,
@@ -72,6 +73,9 @@ class MainWindow(QMainWindow):
         self.login_status_timer = QTimer(self)
         self.login_status_timer.setInterval(5000)
         self.login_status_timer.timeout.connect(self.web_sender.refresh_sendability)
+        self.auto_like_timer = QTimer(self)
+        self.auto_like_timer.setInterval(15000)
+        self.auto_like_timer.timeout.connect(self.perform_live_like)
 
         self._connect_signals()
         self._activate_mock_source()
@@ -119,19 +123,18 @@ class MainWindow(QMainWindow):
 
         controls = QHBoxLayout()
         self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("输入直播间/中控台 URL，或加载本地 demo")
+        self.url_input.setText("919812874685")
+        self.url_input.setPlaceholderText("输入抖音直播房间号")
         self.load_url_button = QPushButton("加载")
         self.load_demo_button = QPushButton("Demo")
         self.start_dom_button = QPushButton("启动观察")
-        self.check_login_button = QPushButton("检测登录")
         controls.addWidget(self.url_input, 1)
         controls.addWidget(self.load_url_button)
         controls.addWidget(self.load_demo_button)
         controls.addWidget(self.start_dom_button)
-        controls.addWidget(self.check_login_button)
         layout.addLayout(controls)
 
-        self.login_status_label = QLabel("发送状态：未检测")
+        self.login_status_label = QLabel("登录/发送状态：自动检测中")
         self.login_status_label.setStyleSheet("color: #666;")
         layout.addWidget(self.login_status_label)
 
@@ -206,6 +209,18 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.quick_replies, 1)
         self.send_quick_button = QPushButton("发送快捷回复")
         layout.addWidget(self.send_quick_button)
+
+        layout.addWidget(QLabel("直播间点赞"))
+        like_buttons = QHBoxLayout()
+        self.like_once_button = QPushButton("点赞一次")
+        self.auto_like_button = QPushButton("自动低频点赞")
+        self.auto_like_button.setCheckable(True)
+        like_buttons.addWidget(self.like_once_button)
+        like_buttons.addWidget(self.auto_like_button)
+        layout.addLayout(like_buttons)
+        self.like_status_label = QLabel("点赞状态：未启动")
+        self.like_status_label.setStyleSheet("color: #666;")
+        layout.addWidget(self.like_status_label)
         return panel
 
     def _connect_signals(self) -> None:
@@ -227,10 +242,11 @@ class MainWindow(QMainWindow):
         self.load_url_button.clicked.connect(self.load_web_url)
         self.load_demo_button.clicked.connect(self.load_demo_page)
         self.start_dom_button.clicked.connect(self._activate_web_source)
-        self.check_login_button.clicked.connect(self.web_sender.refresh_sendability)
         self.send_selected_button.clicked.connect(self.send_selected_action)
         self.discard_selected_button.clicked.connect(self.discard_selected_action)
         self.send_quick_button.clicked.connect(self.send_quick_reply)
+        self.like_once_button.clicked.connect(self.perform_live_like)
+        self.auto_like_button.toggled.connect(self.on_auto_like_toggled)
         self.parse_debug_table.itemSelectionChanged.connect(self.on_parse_debug_selection_changed)
 
     @property
@@ -251,11 +267,15 @@ class MainWindow(QMainWindow):
     def _activate_mock_source(self) -> None:
         self.web_source.stop()
         self.login_status_timer.stop()
+        self.auto_like_timer.stop()
+        self.auto_like_button.setChecked(False)
         self.mock_source.start()
         self.source = self.mock_source
         self.sender = self.mock_sender
-        self.login_status_label.setText("发送状态：模拟发送可用")
+        self.login_status_label.setText("登录/发送状态：模拟发送可用")
         self.login_status_label.setStyleSheet("color: #267a36;")
+        self.like_status_label.setText("点赞状态：WebEngine 未启用")
+        self.like_status_label.setStyleSheet("color: #666;")
         self.source_combo.blockSignals(True)
         self.source_combo.setCurrentIndex(0)
         self.source_combo.blockSignals(False)
@@ -275,7 +295,7 @@ class MainWindow(QMainWindow):
 
     def on_web_load_finished(self, ok: bool) -> None:
         if not ok:
-            self.login_status_label.setText("发送状态：页面加载失败")
+            self.login_status_label.setText("登录/发送状态：页面加载失败")
             self.login_status_label.setStyleSheet("color: #b42318;")
             return
         self.web_source.reinstall()
@@ -284,7 +304,7 @@ class MainWindow(QMainWindow):
     def on_sendability_changed(self, can_send: bool, reason: str) -> None:
         prefix = "可发送" if can_send else "不可发送"
         color = "#267a36" if can_send else "#b42318"
-        self.login_status_label.setText(f"发送状态：{prefix} - {reason}")
+        self.login_status_label.setText(f"登录/发送状态：{prefix} - {reason}")
         self.login_status_label.setStyleSheet(f"color: {color};")
 
     def on_web_sent(self, text: str) -> None:
@@ -297,12 +317,10 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"WebEngine 发送失败：{reason}")
 
     def load_web_url(self) -> None:
-        raw_url = self.url_input.text().strip()
-        if not raw_url:
+        room_or_url = self.url_input.text().strip()
+        if not room_or_url:
             return
-        if "://" not in raw_url:
-            raw_url = f"https://{raw_url}"
-        self.web_view.setUrl(QUrl(raw_url))
+        self.web_view.setUrl(QUrl(self._douyin_live_url(room_or_url)))
         self._activate_web_source()
 
     def load_demo_page(self) -> None:
@@ -451,6 +469,73 @@ class MainWindow(QMainWindow):
         self._append_action(proposal)
         self._try_send(proposal)
 
+    def on_auto_like_toggled(self, checked: bool) -> None:
+        if checked:
+            if self.source is not self.web_source:
+                self._activate_web_source()
+            self.auto_like_timer.start()
+            self.like_status_label.setText("点赞状态：自动低频点赞已启动")
+            self.like_status_label.setStyleSheet("color: #267a36;")
+            self.perform_live_like()
+        else:
+            self.auto_like_timer.stop()
+            self.like_status_label.setText("点赞状态：已停止")
+            self.like_status_label.setStyleSheet("color: #666;")
+
+    def perform_live_like(self) -> None:
+        if self.source is not self.web_source:
+            self.like_status_label.setText("点赞状态：请先切到 WebEngine")
+            self.like_status_label.setStyleSheet("color: #b42318;")
+            return
+        script = """
+        (() => {
+          const visible = (node) => {
+            if (!node) return false;
+            const style = getComputedStyle(node);
+            const rect = node.getBoundingClientRect();
+            return style.display !== "none" && style.visibility !== "hidden" && rect.width > 80 && rect.height > 80;
+          };
+          const candidates = [
+            ...document.querySelectorAll("video"),
+            ...document.querySelectorAll("[class*='player'], [class*='Player'], [class*='live'], [class*='Live']")
+          ].filter(visible);
+          candidates.sort((a, b) => {
+            const ar = a.getBoundingClientRect();
+            const br = b.getBoundingClientRect();
+            return (br.width * br.height) - (ar.width * ar.height);
+          });
+          const node = candidates[0] || document.elementFromPoint(window.innerWidth * 0.38, window.innerHeight * 0.45);
+          if (!node) return JSON.stringify({ ok: false, reason: "未找到直播画面区域" });
+          const rect = node.getBoundingClientRect();
+          return JSON.stringify({
+            ok: true,
+            x: Math.round(rect.left + rect.width * 0.5),
+            y: Math.round(rect.top + rect.height * 0.5),
+            tagName: node.tagName,
+            className: String(node.className || "").slice(0, 80)
+          });
+        })();
+        """
+        self.web_view.page().runJavaScript(script, self._handle_like_target)
+
+    def _handle_like_target(self, result: object) -> None:
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except json.JSONDecodeError:
+                result = None
+        if not isinstance(result, dict) or not result.get("ok"):
+            reason = result.get("reason") if isinstance(result, dict) else "点赞定位失败"
+            self.like_status_label.setText(f"点赞状态：{reason}")
+            self.like_status_label.setStyleSheet("color: #b42318;")
+            return
+        point = QPoint(int(result.get("x", 0)), int(result.get("y", 0)))
+        QTest.mouseClick(self.web_view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, point)
+        QTest.qWait(80)
+        QTest.mouseClick(self.web_view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, point)
+        self.like_status_label.setText(f"点赞状态：已双击直播画面 {datetime.now().strftime('%H:%M:%S')}")
+        self.like_status_label.setStyleSheet("color: #267a36;")
+
     def refresh_songs(self) -> None:
         songs = self.song_repository.list_for_session(self.session.id)
         self.song_table.setRowCount(0)
@@ -476,6 +561,7 @@ class MainWindow(QMainWindow):
         self.mock_source.stop()
         self.web_source.stop()
         self.login_status_timer.stop()
+        self.auto_like_timer.stop()
         self.session.end()
         self.database.save_session(self.session)
         super().closeEvent(event)
@@ -494,3 +580,11 @@ class MainWindow(QMainWindow):
     def _trim_table(table: QTableWidget, max_rows: int) -> None:
         while table.rowCount() > max_rows:
             table.removeRow(0)
+
+    @staticmethod
+    def _douyin_live_url(room_or_url: str) -> str:
+        value = room_or_url.strip()
+        if "://" in value:
+            return value
+        room_id = value.removeprefix("live.douyin.com/").strip("/")
+        return f"https://live.douyin.com/{room_id}"

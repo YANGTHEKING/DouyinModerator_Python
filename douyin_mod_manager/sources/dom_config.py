@@ -57,7 +57,6 @@ class DomSelectorConfig:
             ".login-panel",
             ".login-modal",
             ".douyin-login",
-            "button",
         ]
     )
 

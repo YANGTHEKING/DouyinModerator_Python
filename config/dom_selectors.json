@@ -37,7 +37,6 @@
     ".login",
     ".login-panel",
     ".login-modal",
-    ".douyin-login",
-    "button"
+    ".douyin-login"
   ]
 }
