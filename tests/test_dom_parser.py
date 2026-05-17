@@ -334,8 +334,8 @@ class DomParserTest(unittest.TestCase):
 
         self.assertIsNotNone(parsed)
         assert parsed is not None
-        self.assertEqual(parsed.raw["gift_name"], "欢乐号角")
-        self.assertEqual(parsed.content, "送出 欢乐号角 x1")
+        self.assertEqual(parsed.raw["gift_name"], "欢呼号角")
+        self.assertEqual(parsed.content, "送出 欢呼号角 x1")
 
     def test_uses_gift_hint_as_gift_name(self) -> None:
         parsed = normalize_dom_record(

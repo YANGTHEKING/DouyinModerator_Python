@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from douyin_mod_manager.sources.gift_images import gift_image_key, lookup_gift_name_from_url
+
 
 CHAT_LINE_RE = re.compile(
     r"^\s*(?P<username>[^:：\n\r]{1,80})\s*[:：]\s*(?P<content>.*?)\s*$"
@@ -38,7 +40,7 @@ def normalize_dom_record(record: dict) -> ParsedDomRecord | None:
 
     if event_type == "gift":
         split = split_chat_line(content or visible_text)
-        if split is not None and not is_explicit_gift_text(content or visible_text):
+        if split is not None and not is_explicit_gift_text(content or visible_text) and not has_gift_color(raw):
             event_type = "chat"
             username, content = split
         else:
@@ -64,7 +66,7 @@ def normalize_dom_record(record: dict) -> ParsedDomRecord | None:
     elif event_type == "system":
         username, content = normalize_system_fields(username, content or visible_text)
 
-    if event_type == "chat" and username and is_gift_action_content(content):
+    if event_type == "chat" and username and (is_gift_action_content(content) or has_gift_color(raw)):
         event_type = "gift"
         username, content, raw = normalize_gift_fields(username, content, visible_text, raw)
 
@@ -91,18 +93,25 @@ def normalize_dom_record(record: dict) -> ParsedDomRecord | None:
         stripped = stripped.removeprefix(":").removeprefix("：").strip()
         content = stripped or content
 
-    if event_type == "chat" and username and _content_is_only_username(content, username):
+    if event_type == "chat" and username and (_content_is_only_username(content, username) or _content_is_only_username(visible_text, username)):
         labels = [str(label).strip() for label in raw.get("mediaLabels", []) if str(label).strip()]
         if labels:
             content = " ".join(labels)
+        elif _has_image_only_content(raw):
+            content = "[表情]"
 
     if not username and not content and not visible_text:
         return None
 
+    final_content = content
+    if not final_content and visible_text:
+        if not username or not _content_is_only_username(visible_text, username):
+            final_content = visible_text
+
     return ParsedDomRecord(
         type=event_type,
         username=username,
-        content=content or visible_text,
+        content=final_content,
         raw=raw,
     )
 
@@ -274,6 +283,30 @@ def is_gift_action_content(text: str | None) -> bool:
     return bool(text and GIFT_ACTION_RE.match(" ".join(text.split())))
 
 
+_GIFT_COLORS = {"rgb(235, 168, 37)", "rgb(255, 196, 0)", "rgb(255, 200, 0)"}
+
+
+def has_gift_color(raw: dict) -> bool:
+    children = raw.get("childSummaries")
+    if not isinstance(children, list):
+        return False
+    has_golden_image = False
+    for child in children:
+        if not isinstance(child, dict):
+            continue
+        color = str(child.get("color") or "").strip().lower()
+        if color not in _GIFT_COLORS:
+            continue
+        text = str(child.get("text") or "").strip()
+        if text and re.search(r"(送出了|送出|赠送|送了|送给|送上|送)", text):
+            return True
+        if not text:
+            src = str(child.get("src") or child.get("backgroundImage") or "").strip()
+            if src and "webcast" in src:
+                has_golden_image = True
+    return has_golden_image
+
+
 def gift_name_from_media_labels(labels: object) -> str | None:
     if not isinstance(labels, list):
         return None
@@ -311,18 +344,36 @@ def gift_name_from_hints(hints: object, raw: dict, username: str | None) -> str 
 def gift_name_from_child_summaries(children: object, raw: dict) -> str | None:
     if not isinstance(children, list):
         return None
+    golden_texts: list[str] = []
     for child in children:
         if not isinstance(child, dict):
             continue
+        color = str(child.get("color") or "").strip().lower()
+        if color in _GIFT_COLORS:
+            text = _clean(child.get("text"))
+            if text:
+                golden_texts.append(text)
         src = _clean(child.get("src")) or _clean(child.get("backgroundImage"))
         if not src or "new_user_grade" in src:
             continue
+        image_key = gift_image_key(src)
+        if image_key:
+            raw["gift_image_key"] = image_key
+            mapped_name = lookup_gift_name_from_url(src)
+            if mapped_name:
+                raw["gift_image_url"] = src
+                return mapped_name
         for image_hash, gift_name in GIFT_IMAGE_NAME_BY_HASH.items():
             if image_hash in src:
                 raw["gift_image_url"] = src
+                raw["gift_image_key"] = image_hash
                 return gift_name
         if "webcast" in src and re.search(r"\.(png|webp|jpg|jpeg)", src, re.IGNORECASE):
             raw["gift_image_url"] = src
+    for text in golden_texts:
+        cleaned = clean_gift_name(COUNT_RE.sub("", text))
+        if cleaned and not re.match(r"^[×xX*＊\d\s]+$", cleaned):
+            return cleaned
     return None
 
 
@@ -360,6 +411,20 @@ def _clean(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _has_image_only_content(raw: dict) -> bool:
+    children = raw.get("childSummaries")
+    if not isinstance(children, list):
+        return False
+    for child in children:
+        if not isinstance(child, dict):
+            continue
+        cls = str(child.get("className") or "")
+        text = str(child.get("text") or "").strip()
+        if "hts-live-text-img" in cls and not text:
+            return True
+    return False
 
 
 def _content_is_only_username(content: str | None, username: str) -> bool:

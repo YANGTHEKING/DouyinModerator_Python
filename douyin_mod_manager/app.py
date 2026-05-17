@@ -17,4 +17,7 @@ def main() -> int:
     window.resize(1440, 860)
     window.show()
 
-    return app.exec()
+    code = app.exec()
+    window.destroy()
+    del window
+    return code

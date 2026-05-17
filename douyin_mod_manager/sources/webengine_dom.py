@@ -225,12 +225,14 @@ class WebEngineDomEventSource(EventSource):
 
           const scanVisibleGiftHints = () => {{
             const now = Date.now();
+            if (window.__dmmLastGiftScanAt && now - window.__dmmLastGiftScanAt < 2200) return;
+            window.__dmmLastGiftScanAt = now;
             window.__dmmGiftScanTexts = (window.__dmmGiftScanTexts || []).filter((item) => now - item.at < 8000);
-            const nodes = Array.from(document.querySelectorAll("div, span, p"))
-              .filter((node) => isVisible(node));
+            const nodes = Array.from(document.querySelectorAll("div, span, p")).slice(-900);
             for (const node of nodes) {{
               const text = nodeText(node);
               if (!text || text.length > 160 || !/(送出了|送出|赠送|送了|送给|送上)/.test(text)) continue;
+              if (!isVisible(node)) continue;
               rememberGiftHintText(text, node);
               if (!giftUsernameFromHintText(text)) continue;
               rememberGiftHintText(text, node);
@@ -245,10 +247,14 @@ class WebEngineDomEventSource(EventSource):
           }};
 
           const childSummaries = (root) => Array.from(root.querySelectorAll?.("*") || [])
-            .filter((node) => isVisible(node))
-            .slice(0, 18)
+            .slice(0, 24)
             .map((node) => {{
               const style = window.getComputedStyle(node);
+              const color = style.color || "";
+              const bg = style.backgroundColor || "";
+              const bgImage = String(style.backgroundImage || "");
+              const isDefault = (!color || color === "rgb(0, 0, 0)") && (!bg || bg === "rgba(0, 0, 0, 0)") && bgImage === "none";
+              if (isDefault && !nodeText(node).trim() && !node.getAttribute?.("alt") && !node.getAttribute?.("title")) return null;
               return {{
                 tag: node.tagName || "",
                 className: String(node.className || "").slice(0, 120),
@@ -257,11 +263,12 @@ class WebEngineDomEventSource(EventSource):
                 title: String(node.getAttribute?.("title") || "").slice(0, 80),
                 ariaLabel: String(node.getAttribute?.("aria-label") || "").slice(0, 80),
                 src: String(node.getAttribute?.("src") || "").slice(0, 160),
-                color: style.color || "",
-                backgroundColor: style.backgroundColor || "",
-                backgroundImage: String(style.backgroundImage || "").slice(0, 160)
+                color,
+                backgroundColor: bg,
+                backgroundImage: bgImage.slice(0, 160)
               }};
-            }});
+            }})
+            .filter(Boolean);
 
           const inferType = (node, text, content) => {{
             const explicit = node.dataset?.dmmType || node.getAttribute?.("data-type") || "";
