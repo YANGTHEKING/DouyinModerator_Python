@@ -316,6 +316,27 @@ class DomParserTest(unittest.TestCase):
         self.assertEqual(parsed.raw["gift_name"], "小心心")
         self.assertEqual(parsed.content, "送出 小心心 x1")
 
+    def test_uses_happy_horn_gift_image_url_as_gift_name(self) -> None:
+        parsed = normalize_dom_record(
+            {
+                "type": "gift",
+                "username": "小光全𠳝啶Bot🌠",
+                "content": "送出了 × 1",
+                "raw": {
+                    "text": "小光全𠳝啶Bot🌠：送出了 × 1",
+                    "mediaLabels": [],
+                    "childSummaries": [
+                        {"tag": "IMG", "src": "https://p3-webcast.douyinpic.com/img/webcast/0fc1fff5bcc835209390b87f609688f1.png~tplv-obj.png"}
+                    ],
+                },
+            }
+        )
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.raw["gift_name"], "欢乐号角")
+        self.assertEqual(parsed.content, "送出 欢乐号角 x1")
+
     def test_uses_gift_hint_as_gift_name(self) -> None:
         parsed = normalize_dom_record(
             {

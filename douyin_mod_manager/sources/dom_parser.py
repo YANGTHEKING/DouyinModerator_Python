@@ -12,6 +12,7 @@ GIFT_ACTION_RE = re.compile(r"^\s*(?:送出了|送出|赠送|送了|送给|送�
 BRACKET_GIFT_RE = re.compile(r"[【\[](?P<gift>[^】\]]+)[】\]]")
 COUNT_RE = re.compile(r"[xX×*＊]\s*(?P<count>\d+)|(?P<count_cn>\d+)\s*(?:个|份|枚)")
 GIFT_IMAGE_NAME_BY_HASH = {
+    "0fc1fff5bcc835209390b87f609688f1": "欢乐号角",
     "7ef47758a435313180e6b78b056dda4e": "小心心",
     "4960c39f645d524beda5d50dc372510e": "真好看",
 }

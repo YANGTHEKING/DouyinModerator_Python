@@ -172,6 +172,29 @@ class WebEngineDomEventSource(EventSource):
             return username;
           }};
 
+          const rememberGiftHintText = (text, root) => {{
+            const giftName = giftNameFromHintText(text);
+            if (!giftName) return false;
+            const username = giftUsernameFromHintText(text);
+            if (!username) return false;
+            if (/钻/.test(username) || /^[a-zA-Z]$/.test(giftName)) return false;
+            const key = `${{username}}|${{giftName}}|${{giftCountFromText(text)}}|${{text}}`;
+            window.__dmmSeenGiftHints = window.__dmmSeenGiftHints || new Set();
+            if (window.__dmmSeenGiftHints.has(key)) return false;
+            window.__dmmSeenGiftHints.add(key);
+            window.__dmmGiftHints = window.__dmmGiftHints || [];
+            window.__dmmGiftHints.push({{
+              at: Date.now(),
+              text,
+              username,
+              giftName,
+              giftCount: giftCountFromText(text),
+              mediaLabels: root ? mediaLabels(root) : []
+            }});
+            window.__dmmGiftHints = window.__dmmGiftHints.slice(-80);
+            return true;
+          }};
+
           const rememberGiftHint = (node) => {{
             const contexts = [node, node.parentElement, node.parentElement?.parentElement].filter(Boolean);
             let best = null;
@@ -185,16 +208,18 @@ class WebEngineDomEventSource(EventSource):
               if (!best || score > best.score) best = {{ context, text, giftName, username, score }};
             }}
             if (!best) return;
-            window.__dmmGiftHints = window.__dmmGiftHints || [];
-            window.__dmmGiftHints.push({{
-              at: Date.now(),
-              text: best.text,
-              username: best.username,
-              giftName: best.giftName,
-              giftCount: giftCountFromText(best.text),
-              mediaLabels: mediaLabels(best.context)
-            }});
-            window.__dmmGiftHints = window.__dmmGiftHints.slice(-40);
+            rememberGiftHintText(best.text, best.context);
+          }};
+
+          const scanVisibleGiftHints = () => {{
+            const nodes = Array.from(document.querySelectorAll("div, span, p"))
+              .filter((node) => isVisible(node));
+            for (const node of nodes) {{
+              const text = nodeText(node);
+              if (!text || text.length > 160 || !/(送出了|送出|赠送|送了|送给|送上)/.test(text)) continue;
+              if (!giftUsernameFromHintText(text)) continue;
+              rememberGiftHintText(text, node);
+            }}
           }};
 
           const recentGiftHints = () => {{
@@ -273,7 +298,9 @@ class WebEngineDomEventSource(EventSource):
             }}
           }};
 
+          window.__dmmScanGiftHints = scanVisibleGiftHints;
           document.querySelectorAll(config.eventContainers.join(",")).forEach(parseNode);
+          scanVisibleGiftHints();
           window.__dmmObserver = new MutationObserver((mutations) => {{
             for (const mutation of mutations) {{
               mutation.addedNodes.forEach((node) => {{
@@ -295,7 +322,7 @@ class WebEngineDomEventSource(EventSource):
         if not self._enabled:
             return
         self.page.runJavaScript(
-            "(() => { const events = window.__dmmEvents || []; window.__dmmEvents = []; return JSON.stringify(events); })();",
+            "(() => { window.__dmmScanGiftHints?.(); const events = window.__dmmEvents || []; window.__dmmEvents = []; return JSON.stringify(events); })();",
             self._handle_events,
         )
 
