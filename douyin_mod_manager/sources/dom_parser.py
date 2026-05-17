@@ -163,6 +163,7 @@ def normalize_gift_fields(
 
     gift_name = (
         gift_name_from_media_labels(raw.get("mediaLabels"))
+        or gift_name_from_hints(raw.get("giftHints"), raw, username)
         or gift_name_from_child_summaries(raw.get("childSummaries"), raw)
         or _clean(raw.get("gift_name"))
     )
@@ -282,6 +283,30 @@ def gift_name_from_media_labels(labels: object) -> str | None:
     return None
 
 
+def gift_name_from_hints(hints: object, raw: dict, username: str | None) -> str | None:
+    if not isinstance(hints, list):
+        return None
+    normalized_username = _normalize_match_text(username)
+    for hint in reversed(hints):
+        if not isinstance(hint, dict):
+            continue
+        hint_username = _normalize_match_text(hint.get("username"))
+        if normalized_username and hint_username:
+            if normalized_username not in hint_username and hint_username not in normalized_username:
+                continue
+        elif normalized_username:
+            continue
+        gift_name = clean_gift_name(_clean(hint.get("giftName")))
+        if not gift_name:
+            continue
+        raw["gift_hint_text"] = hint.get("text")
+        raw["gift_hint_username"] = hint.get("username")
+        if hint.get("giftCount") and not raw.get("gift_count"):
+            raw["gift_count"] = _gift_count(hint.get("giftCount"))
+        return gift_name
+    return None
+
+
 def gift_name_from_child_summaries(children: object, raw: dict) -> str | None:
     if not isinstance(children, list):
         return None
@@ -342,6 +367,10 @@ def _content_is_only_username(content: str | None, username: str) -> bool:
     normalized_content = content.strip().rstrip(":：").strip()
     normalized_username = username.strip().rstrip(":：").strip()
     return normalized_content == normalized_username
+
+
+def _normalize_match_text(value: object) -> str:
+    return re.sub(r"[\s:：*＊]+", "", str(value or "").strip())
 
 
 def _last_non_empty_line(text: str) -> str:

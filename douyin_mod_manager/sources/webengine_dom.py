@@ -145,6 +145,64 @@ class WebEngineDomEventSource(EventSource):
             return [...new Set(labels)];
           }};
 
+          const giftCountFromText = (text) => {{
+            const match = String(text || "").match(/[xX×*＊]\\s*(\\d+)|(\\d+)\\s*(?:个|份|枚)/);
+            if (!match) return 1;
+            return Number(match[1] || match[2] || 1) || 1;
+          }};
+
+          const giftNameFromHintText = (text) => {{
+            let value = String(text || "").replace(/\\s+/g, " ").trim();
+            if (!/(送出了|送出|赠送|送了|送给|送上)/.test(value)) return "";
+            value = value.replace(/^.*?(送出了|送出|赠送|送了|送给|送上)/, "").trim();
+            value = value.replace(/[xX×*＊]\\s*\\d+.*$/, "").trim();
+            value = value.replace(/^主播|^你|^TA|^ta|^Ta/, "").trim();
+            value = value.replace(/^[：:，,\\s]+|[：:，,\\s]+$/g, "");
+            if (!value || /^礼物$/.test(value) || /^\\d+$/.test(value)) return "";
+            if (value.length > 30) return "";
+            return value;
+          }};
+
+          const giftUsernameFromHintText = (text) => {{
+            const value = String(text || "").replace(/\\s+/g, " ").trim();
+            const match = value.match(/^(.+?)(?:送出了|送出|赠送|送了|送给|送上)/);
+            if (!match) return "";
+            const username = match[1].replace(/[：:，,\\s]+$/g, "").trim();
+            if (!username || username.length > 80) return "";
+            return username;
+          }};
+
+          const rememberGiftHint = (node) => {{
+            const contexts = [node, node.parentElement, node.parentElement?.parentElement].filter(Boolean);
+            let best = null;
+            for (const context of contexts) {{
+              const text = nodeText(context);
+              if (!text || text.length > 240 || !/(送出了|送出|赠送|送了|送给|送上)/.test(text)) continue;
+              const giftName = giftNameFromHintText(text);
+              if (!giftName) continue;
+              const username = giftUsernameFromHintText(text);
+              const score = (username ? 10 : 0) - Math.max(0, text.length - 80) / 80;
+              if (!best || score > best.score) best = {{ context, text, giftName, username, score }};
+            }}
+            if (!best) return;
+            window.__dmmGiftHints = window.__dmmGiftHints || [];
+            window.__dmmGiftHints.push({{
+              at: Date.now(),
+              text: best.text,
+              username: best.username,
+              giftName: best.giftName,
+              giftCount: giftCountFromText(best.text),
+              mediaLabels: mediaLabels(best.context)
+            }});
+            window.__dmmGiftHints = window.__dmmGiftHints.slice(-40);
+          }};
+
+          const recentGiftHints = () => {{
+            const now = Date.now();
+            window.__dmmGiftHints = (window.__dmmGiftHints || []).filter((hint) => now - hint.at < 8000);
+            return window.__dmmGiftHints.slice(-8);
+          }};
+
           const childSummaries = (root) => Array.from(root.querySelectorAll?.("*") || [])
             .filter((node) => isVisible(node))
             .slice(0, 18)
@@ -206,6 +264,7 @@ class WebEngineDomEventSource(EventSource):
                   color: style.color || "",
                   backgroundColor: style.backgroundColor || "",
                   childSummaries: children,
+                  giftHints: type === "gift" ? recentGiftHints() : [],
                   url: location.href,
                   className: item.className || "",
                   tagName: item.tagName || ""
@@ -217,7 +276,10 @@ class WebEngineDomEventSource(EventSource):
           document.querySelectorAll(config.eventContainers.join(",")).forEach(parseNode);
           window.__dmmObserver = new MutationObserver((mutations) => {{
             for (const mutation of mutations) {{
-              mutation.addedNodes.forEach(parseNode);
+              mutation.addedNodes.forEach((node) => {{
+                if (node?.nodeType === Node.ELEMENT_NODE) rememberGiftHint(node);
+                parseNode(node);
+              }});
             }}
           }});
           window.__dmmObserver.observe(document.documentElement || document.body, {{
@@ -308,6 +370,7 @@ class WebEngineDomEventSource(EventSource):
                 "color": raw.get("color"),
                 "backgroundColor": raw.get("backgroundColor"),
                 "childSummaries": raw.get("childSummaries"),
+                "giftHints": raw.get("giftHints"),
                 "className": raw.get("className"),
                 "tagName": raw.get("tagName"),
                 "url": raw.get("url"),

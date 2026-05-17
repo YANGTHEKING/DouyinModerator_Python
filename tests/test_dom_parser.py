@@ -316,6 +316,43 @@ class DomParserTest(unittest.TestCase):
         self.assertEqual(parsed.raw["gift_name"], "小心心")
         self.assertEqual(parsed.content, "送出 小心心 x1")
 
+    def test_uses_gift_hint_as_gift_name(self) -> None:
+        parsed = normalize_dom_record(
+            {
+                "type": "gift",
+                "username": "杨*****",
+                "content": "送出了 × 1",
+                "raw": {
+                    "text": "杨*****：送出了 × 1",
+                    "mediaLabels": [],
+                    "giftHints": [{"text": "杨***** 送出了 真好看 × 1", "username": "杨*****", "giftName": "真好看", "giftCount": 1}],
+                },
+            }
+        )
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.raw["gift_name"], "真好看")
+        self.assertEqual(parsed.content, "送出 真好看 x1")
+
+    def test_ignores_gift_hint_for_different_user(self) -> None:
+        parsed = normalize_dom_record(
+            {
+                "type": "gift",
+                "username": "小光全𠳝啶Bot🌠",
+                "content": "送出了 × 1",
+                "raw": {
+                    "text": "小光全𠳝啶Bot🌠：送出了 × 1",
+                    "mediaLabels": [],
+                    "giftHints": [{"text": "青***** 赠送W", "username": "青*****", "giftName": "W", "giftCount": 1}],
+                },
+            }
+        )
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertNotIn("gift_name", parsed.raw)
+
 
 if __name__ == "__main__":
     unittest.main()
