@@ -173,6 +173,18 @@ class WebEngineDomEventSource(EventSource):
           }};
 
           const rememberGiftHintText = (text, root) => {{
+            const rootClass = String(root?.className || "");
+            if (/gift_item_gift_bar|gitBarOptimizeEnabled|gift/i.test(rootClass) && /\\d+钻|赠送[A-Za-z]/.test(text)) return false;
+            window.__dmmGiftScanTexts = window.__dmmGiftScanTexts || [];
+            window.__dmmGiftScanTexts.push({{
+              at: Date.now(),
+              text,
+              className: rootClass.slice(0, 120),
+              tagName: root?.tagName || "",
+              giftName: giftNameFromHintText(text),
+              username: giftUsernameFromHintText(text)
+            }});
+            window.__dmmGiftScanTexts = window.__dmmGiftScanTexts.slice(-80);
             const giftName = giftNameFromHintText(text);
             if (!giftName) return false;
             const username = giftUsernameFromHintText(text);
@@ -212,14 +224,18 @@ class WebEngineDomEventSource(EventSource):
           }};
 
           const scanVisibleGiftHints = () => {{
+            const now = Date.now();
+            window.__dmmGiftScanTexts = (window.__dmmGiftScanTexts || []).filter((item) => now - item.at < 8000);
             const nodes = Array.from(document.querySelectorAll("div, span, p"))
               .filter((node) => isVisible(node));
             for (const node of nodes) {{
               const text = nodeText(node);
               if (!text || text.length > 160 || !/(送出了|送出|赠送|送了|送给|送上)/.test(text)) continue;
+              rememberGiftHintText(text, node);
               if (!giftUsernameFromHintText(text)) continue;
               rememberGiftHintText(text, node);
             }}
+            window.__dmmGiftScanTexts = window.__dmmGiftScanTexts.slice(-30);
           }};
 
           const recentGiftHints = () => {{
@@ -290,6 +306,7 @@ class WebEngineDomEventSource(EventSource):
                   backgroundColor: style.backgroundColor || "",
                   childSummaries: children,
                   giftHints: type === "gift" ? recentGiftHints() : [],
+                  giftScanTexts: type === "gift" ? (window.__dmmGiftScanTexts || []) : [],
                   url: location.href,
                   className: item.className || "",
                   tagName: item.tagName || ""
@@ -398,6 +415,7 @@ class WebEngineDomEventSource(EventSource):
                 "backgroundColor": raw.get("backgroundColor"),
                 "childSummaries": raw.get("childSummaries"),
                 "giftHints": raw.get("giftHints"),
+                "giftScanTexts": raw.get("giftScanTexts"),
                 "className": raw.get("className"),
                 "tagName": raw.get("tagName"),
                 "url": raw.get("url"),
