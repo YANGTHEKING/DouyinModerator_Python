@@ -59,6 +59,8 @@ class LiveEvent:
 
     @property
     def display_user(self) -> str:
+        if self.type == EventType.SYSTEM:
+            return self.username or "系统"
         return self.username or "匿名用户"
 
     @property

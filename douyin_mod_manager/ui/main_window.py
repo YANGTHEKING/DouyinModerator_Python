@@ -10,6 +10,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QComboBox,
+    QCheckBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -104,6 +105,10 @@ class MainWindow(QMainWindow):
 
         self.clear_button = QPushButton("清空日志")
         toolbar.addWidget(self.clear_button)
+
+        self.hide_enter_events_checkbox = QCheckBox("隐藏进场")
+        self.hide_enter_events_checkbox.setChecked(True)
+        toolbar.addWidget(self.hide_enter_events_checkbox)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._build_web_placeholder())
@@ -336,6 +341,8 @@ class MainWindow(QMainWindow):
 
     def on_event(self, event: LiveEvent) -> None:
         self.database.save_event(event)
+        if event.type.value == "user_enter" and self.hide_enter_events_checkbox.isChecked():
+            return
         self._append_event(event)
         song = self.song_service.maybe_add_from_event(event)
         if song:

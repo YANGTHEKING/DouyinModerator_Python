@@ -39,6 +39,21 @@ class DomParserTest(unittest.TestCase):
         self.assertEqual(parsed.username, "大叔")
         self.assertEqual(parsed.content, "你好")
 
+    def test_keeps_structured_username_with_colon(self) -> None:
+        parsed = normalize_dom_record(
+            {
+                "type": "chat",
+                "username": "阿:澈",
+                "content": "晚安",
+                "raw": {"text": "阿:澈：晚安", "parseMethod": "interactive"},
+            }
+        )
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.username, "阿:澈")
+        self.assertEqual(parsed.content, "晚安")
+
     def test_parses_plain_text_gift_line(self) -> None:
         self.assertEqual(parse_gift_line("大叔 送出【啤酒】x3"), ("大叔", "啤酒", 3))
         self.assertEqual(parse_gift_line("大叔送了[小心心]"), ("大叔", "小心心", 1))
@@ -137,6 +152,37 @@ class DomParserTest(unittest.TestCase):
         self.assertEqual(parsed.username, "㿝氼223ᴶ ₛ")
         self.assertEqual(parsed.content, "推荐直播给Ta的朋友")
 
+    def test_parses_share_system_action_name(self) -> None:
+        parsed = normalize_dom_record(
+            {
+                "type": "system",
+                "username": "",
+                "content": "袁 推荐了直播",
+                "raw": {"text": "袁 推荐了直播"},
+            }
+        )
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.username, "袁")
+        self.assertEqual(parsed.content, "推荐了直播")
+
+    def test_recovers_share_action_misclassified_as_chat(self) -> None:
+        parsed = normalize_dom_record(
+            {
+                "type": "chat",
+                "username": "",
+                "content": "凤儿 推荐了直播",
+                "raw": {"text": "凤儿 推荐了直播"},
+            }
+        )
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.type, "system")
+        self.assertEqual(parsed.username, "凤儿")
+        self.assertEqual(parsed.content, "推荐了直播")
+
     def test_recovers_chat_misclassified_as_follow(self) -> None:
         parsed = normalize_dom_record(
             {
@@ -199,6 +245,61 @@ class DomParserTest(unittest.TestCase):
         assert parsed is not None
         self.assertEqual(parsed.username, "畅月宝🍓")
         self.assertEqual(parsed.content, "畅月宝🍓：")
+
+    def test_recovers_chat_misclassified_as_gift_when_text_mentions_gifts(self) -> None:
+        parsed = normalize_dom_record(
+            {
+                "type": "gift",
+                "username": "",
+                "content": "九宝\n桃了个兔🐰 ᴶ ₛ：感谢姐宝们的礼物和陪伴",
+                "raw": {"text": "九宝\n桃了个兔🐰 ᴶ ₛ：感谢姐宝们的礼物和陪伴", "mediaLabels": ["[比心]"]},
+            }
+        )
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.type, "chat")
+        self.assertEqual(parsed.username, "桃了个兔🐰 ᴶ ₛ")
+        self.assertEqual(parsed.content, "感谢姐宝们的礼物和陪伴")
+        self.assertNotIn("gift_name", parsed.raw)
+
+    def test_structured_gift_action_without_visible_gift_name(self) -> None:
+        parsed = normalize_dom_record(
+            {
+                "type": "gift",
+                "username": "羽*****：",
+                "content": "送出了 × 5",
+                "raw": {"text": "羽*****：送出了 × 5", "parseMethod": "interactive", "mediaLabels": []},
+            }
+        )
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.type, "gift")
+        self.assertEqual(parsed.username, "羽*****")
+        self.assertEqual(parsed.raw["gift_count"], 5)
+        self.assertNotIn("gift_name", parsed.raw)
+
+    def test_uses_known_gift_image_url_as_gift_name(self) -> None:
+        parsed = normalize_dom_record(
+            {
+                "type": "gift",
+                "username": "杨*****",
+                "content": "送出了 × 1",
+                "raw": {
+                    "text": "杨*****：送出了 × 1",
+                    "mediaLabels": [],
+                    "childSummaries": [
+                        {"tag": "IMG", "src": "https://p3-webcast.douyinpic.com/img/webcast/7ef47758a435313180e6b78b056dda4e.png~tplv-obj.png"}
+                    ],
+                },
+            }
+        )
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.raw["gift_name"], "小心心")
+        self.assertEqual(parsed.content, "送出 小心心 x1")
 
 
 if __name__ == "__main__":

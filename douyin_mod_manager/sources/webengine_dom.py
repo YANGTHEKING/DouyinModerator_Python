@@ -64,6 +64,76 @@ class WebEngineDomEventSource(EventSource):
             return "";
           }};
 
+          const nodeText = (node) => String(node?.innerText || node?.textContent || node?.value || "").trim();
+
+          const isVisible = (node) => {{
+            if (!node) return false;
+            const style = window.getComputedStyle(node);
+            const rect = node.getBoundingClientRect();
+            return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+          }};
+
+          const isInteractive = (node) => {{
+            const style = window.getComputedStyle(node);
+            const role = String(node.getAttribute?.("role") || "").toLowerCase();
+            return style.cursor === "pointer"
+              || node.tabIndex >= 0
+              || Boolean(node.onclick)
+              || role === "button"
+              || role === "link"
+              || node.tagName === "A"
+              || node.tagName === "BUTTON";
+          }};
+
+          const splitAfterUsername = (text, username) => {{
+            if (!text || !username) return "";
+            const lines = text.split(/\\n+/).map((line) => line.trim()).filter(Boolean);
+            const usernameLine = [...lines].reverse().find((line) => line.includes(username)) || text;
+            const at = usernameLine.indexOf(username);
+            if (at < 0) return "";
+            return usernameLine.slice(at + username.length).replace(/^\\s*[：:]\\s*/, "").trim();
+          }};
+
+          const structuredParts = (item, text) => {{
+            const selectorUsername = firstText(item, config.usernameSelectors);
+            if (selectorUsername) {{
+              return {{
+                username: selectorUsername,
+                content: firstText(item, config.contentSelectors) || splitAfterUsername(text, selectorUsername),
+                method: "selector"
+              }};
+            }}
+
+            const candidates = Array.from(item.querySelectorAll("*"))
+              .filter((node) => node !== item && isVisible(node))
+              .map((node) => {{
+                const value = nodeText(node);
+                const className = String(node.className || "");
+                const lineWithColon = text.split(/\\n+/).find((line) => line.includes(value) && /[：:]/.test(line)) || "";
+                let score = 0;
+                if (!value || value.length > 80) score -= 100;
+                if (isInteractive(node)) score += 30;
+                if (/user|nick|name|author|avatar/i.test(className)) score += 20;
+                if (lineWithColon.startsWith(value)) score += 80;
+                else if (lineWithColon.includes(`${{value}}：`) || lineWithColon.includes(`${{value}}:`)) score += 60;
+                if (/^(九宝|粉丝团|灯牌|Lv\\.?\\d+|\\d+)$/i.test(value)) score -= 50;
+                return {{ node, value, score }};
+              }})
+              .filter((candidate) => candidate.score > 0)
+              .sort((a, b) => b.score - a.score);
+            const best = candidates[0];
+            if (!best) return {{ username: "", content: "", method: "text" }};
+            const content = splitAfterUsername(text, best.value);
+            const username = content ? best.value.replace(/[：:]$/, "").trim() : best.value;
+            return {{
+              username,
+              content,
+              method: "interactive",
+              usernameClassName: String(best.node.className || ""),
+              usernameTagName: best.node.tagName || ""
+            }};
+          }};
+
           const mediaLabels = (root) => {{
             const labels = [];
             root.querySelectorAll?.("img, svg, [aria-label], [title], [alt]").forEach((node) => {{
@@ -75,13 +145,33 @@ class WebEngineDomEventSource(EventSource):
             return [...new Set(labels)];
           }};
 
-          const inferType = (node, text) => {{
+          const childSummaries = (root) => Array.from(root.querySelectorAll?.("*") || [])
+            .filter((node) => isVisible(node))
+            .slice(0, 18)
+            .map((node) => {{
+              const style = window.getComputedStyle(node);
+              return {{
+                tag: node.tagName || "",
+                className: String(node.className || "").slice(0, 120),
+                text: nodeText(node).slice(0, 80),
+                alt: String(node.getAttribute?.("alt") || "").slice(0, 80),
+                title: String(node.getAttribute?.("title") || "").slice(0, 80),
+                ariaLabel: String(node.getAttribute?.("aria-label") || "").slice(0, 80),
+                src: String(node.getAttribute?.("src") || "").slice(0, 160),
+                color: style.color || "",
+                backgroundColor: style.backgroundColor || "",
+                backgroundImage: String(style.backgroundImage || "").slice(0, 160)
+              }};
+            }});
+
+          const inferType = (node, text, content) => {{
             const explicit = node.dataset?.dmmType || node.getAttribute?.("data-type") || "";
             if (explicit) return explicit;
-            if (/送出|礼物|gift/i.test(text)) return "gift";
+            if (/^(送出了|送出|赠送|送了|送给|送上)/.test(content || "")) return "gift";
+            if (!/[：:]/.test(text) && /(送出|赠送|送了|送给|送上|gift)/i.test(text)) return "gift";
             if (!/[：:]/.test(text) && /\\s+(关注了主播|关注主播|加入了粉丝团|成为了粉丝)\\s*$/.test(text)) return "follow";
             if (!/[：:]/.test(text) && /\\s+(来了|进入直播间|进入了直播间|进场)\\s*$/.test(text)) return "user_enter";
-            if (/为主播点赞了|推荐直播给Ta的朋友/.test(text)) return "system";
+            if (/为主播点赞了|推荐直播给Ta的朋友|推荐了直播|刚刚升级至Lv\\./.test(text)) return "system";
             if (/系统|提示|直播间/.test(text)) return "system";
             return "chat";
           }};
@@ -96,10 +186,13 @@ class WebEngineDomEventSource(EventSource):
               const key = `${{location.href}}|${{text}}`;
               if (window.__dmmSeen.has(key)) continue;
               window.__dmmSeen.add(key);
-              const username = firstText(item, config.usernameSelectors);
-              const content = firstText(item, config.contentSelectors) || text.replace(username, "").trim() || text;
-              const type = inferType(item, text);
+              const parts = structuredParts(item, text);
+              const username = parts.username;
+              const content = parts.content || text;
+              const type = inferType(item, text, content);
               const labels = mediaLabels(item);
+              const style = window.getComputedStyle(item);
+              const children = childSummaries(item);
               window.__dmmEvents.push({{
                 type,
                 username,
@@ -107,6 +200,12 @@ class WebEngineDomEventSource(EventSource):
                 raw: {{
                   text,
                   mediaLabels: labels,
+                  parseMethod: parts.method,
+                  usernameClassName: parts.usernameClassName || "",
+                  usernameTagName: parts.usernameTagName || "",
+                  color: style.color || "",
+                  backgroundColor: style.backgroundColor || "",
+                  childSummaries: children,
                   url: location.href,
                   className: item.className || "",
                   tagName: item.tagName || ""
@@ -192,6 +291,7 @@ class WebEngineDomEventSource(EventSource):
                 "content": getattr(parsed, "content", None),
                 "gift_name": getattr(parsed, "raw", {}).get("gift_name"),
                 "gift_count": getattr(parsed, "raw", {}).get("gift_count"),
+                "gift_image_url": getattr(parsed, "raw", {}).get("gift_image_url"),
             }
         payload = {
             "at": datetime.now(timezone.utc).isoformat(),
@@ -202,6 +302,12 @@ class WebEngineDomEventSource(EventSource):
                 "content": record.get("content"),
                 "text": raw.get("text"),
                 "mediaLabels": raw.get("mediaLabels"),
+                "parseMethod": raw.get("parseMethod"),
+                "usernameClassName": raw.get("usernameClassName"),
+                "usernameTagName": raw.get("usernameTagName"),
+                "color": raw.get("color"),
+                "backgroundColor": raw.get("backgroundColor"),
+                "childSummaries": raw.get("childSummaries"),
                 "className": raw.get("className"),
                 "tagName": raw.get("tagName"),
                 "url": raw.get("url"),

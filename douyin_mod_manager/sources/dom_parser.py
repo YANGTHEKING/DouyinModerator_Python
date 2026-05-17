@@ -7,9 +7,14 @@ from dataclasses import dataclass, field
 CHAT_LINE_RE = re.compile(
     r"^\s*(?P<username>[^:：\n\r]{1,80})\s*[:：]\s*(?P<content>.*?)\s*$"
 )
-GIFT_LINE_RE = re.compile(r"^\s*(?P<username>.+?)\s*(?:送出|赠送|送了|送)\s*(?P<tail>.+?)\s*$")
+GIFT_LINE_RE = re.compile(r"^\s*(?P<username>.+?)\s*(?:送出了|送出|赠送|送了|送给|送上|送)\s*(?P<tail>.*?)\s*$")
+GIFT_ACTION_RE = re.compile(r"^\s*(?:送出了|送出|赠送|送了|送给|送上|送)\s*(?P<tail>.*?)\s*$")
 BRACKET_GIFT_RE = re.compile(r"[【\[](?P<gift>[^】\]]+)[】\]]")
 COUNT_RE = re.compile(r"[xX×*＊]\s*(?P<count>\d+)|(?P<count_cn>\d+)\s*(?:个|份|枚)")
+GIFT_IMAGE_NAME_BY_HASH = {
+    "7ef47758a435313180e6b78b056dda4e": "小心心",
+    "4960c39f645d524beda5d50dc372510e": "真好看",
+}
 
 
 @dataclass(slots=True)
@@ -27,9 +32,16 @@ def normalize_dom_record(record: dict) -> ParsedDomRecord | None:
     username = _clean(record.get("username"))
     content = _clean(record.get("content"))
     visible_text = _clean(raw.get("text"))
+    if username:
+        username = username.rstrip(":：").strip() or username
 
     if event_type == "gift":
-        username, content, raw = normalize_gift_fields(username, content, visible_text, raw)
+        split = split_chat_line(content or visible_text)
+        if split is not None and not is_explicit_gift_text(content or visible_text):
+            event_type = "chat"
+            username, content = split
+        else:
+            username, content, raw = normalize_gift_fields(username, content, visible_text, raw)
     elif event_type == "follow":
         follow_username, follow_content = normalize_follow_fields(username, content or visible_text)
         if follow_username and follow_content:
@@ -51,18 +63,27 @@ def normalize_dom_record(record: dict) -> ParsedDomRecord | None:
     elif event_type == "system":
         username, content = normalize_system_fields(username, content or visible_text)
 
+    if event_type == "chat" and username and is_gift_action_content(content):
+        event_type = "gift"
+        username, content, raw = normalize_gift_fields(username, content, visible_text, raw)
+
     if not username and event_type == "chat":
         split_source = content or visible_text
         split = split_chat_line(split_source)
         if split is not None:
             username, content = split
         else:
-            username = split_username_prefix(split_source)
-            labels = [str(label).strip() for label in raw.get("mediaLabels", []) if str(label).strip()]
-            if labels:
-                content = " ".join(labels)
-            elif username:
-                content = chat_content_after_prefix(split_source)
+            system_username, system_content = normalize_system_fields(username, split_source)
+            if system_username or system_content != split_source:
+                event_type = "system"
+                username, content = system_username, system_content
+            else:
+                username = split_username_prefix(split_source)
+                labels = [str(label).strip() for label in raw.get("mediaLabels", []) if str(label).strip()]
+                if labels:
+                    content = " ".join(labels)
+                elif username:
+                    content = chat_content_after_prefix(split_source)
 
     if username and content and content.startswith(username):
         stripped = content.removeprefix(username).strip()
@@ -118,17 +139,28 @@ def normalize_gift_fields(
     visible_text: str | None,
     raw: dict,
 ) -> tuple[str | None, str | None, dict]:
-    text = visible_text or content
+    text = content if username and is_gift_action_content(content) else visible_text or content
     parsed = parse_gift_line(text)
     if parsed:
         parsed_user, gift_name, gift_count = parsed
         username = username or parsed_user
         raw["gift_name"] = raw.get("gift_name") or gift_name
         raw["gift_count"] = raw.get("gift_count") or gift_count
+    elif username and content:
+        action = parse_gift_action_content(content)
+        if action:
+            gift_name, gift_count = action
+            if gift_name:
+                raw["gift_name"] = raw.get("gift_name") or gift_name
+            raw["gift_count"] = raw.get("gift_count") or gift_count
     elif not username:
         username = split_username_prefix(text)
 
-    gift_name = gift_name_from_media_labels(raw.get("mediaLabels")) or _clean(raw.get("gift_name"))
+    gift_name = (
+        gift_name_from_media_labels(raw.get("mediaLabels"))
+        or gift_name_from_child_summaries(raw.get("childSummaries"), raw)
+        or _clean(raw.get("gift_name"))
+    )
     if gift_name:
         raw["gift_name"] = gift_name
 
@@ -173,9 +205,11 @@ def normalize_system_fields(username: str | None, content: str | None) -> tuple[
     if split is not None:
         parsed_user, parsed_content = split
         return username or parsed_user, parsed_content
-    match = re.match(r"^\s*(?P<username>.+?)\s+(?P<action>推荐直播给Ta的朋友|为主播点赞了)\s*$", _last_non_empty_line(content))
+    match = re.match(r"^\s*(?P<username>.+?)\s+(?P<action>推荐直播给Ta的朋友|推荐了直播|为主播点赞了)\s*$", _last_non_empty_line(content))
     if match:
         return username or match.group("username").strip(), match.group("action").strip()
+    if re.match(r"^\s*恭喜.+刚刚升级至Lv\.\d+\s*$", _last_non_empty_line(content)):
+        return username, content
     return username, content
 
 
@@ -201,6 +235,38 @@ def parse_gift_line(text: str | None) -> tuple[str, str, int] | None:
     return username, gift, count
 
 
+def parse_gift_action_content(text: str | None) -> tuple[str | None, int] | None:
+    if not text:
+        return None
+    compact = " ".join(text.split())
+    match = GIFT_ACTION_RE.match(compact)
+    if not match:
+        return None
+    tail = match.group("tail").strip()
+    gift = None
+    bracket = BRACKET_GIFT_RE.search(tail)
+    if bracket:
+        gift = clean_gift_name(bracket.group("gift"))
+    if not gift:
+        gift = clean_gift_name(COUNT_RE.sub("", tail))
+    count_match = COUNT_RE.search(tail)
+    count = _gift_count(count_match.group("count") or count_match.group("count_cn")) if count_match else 1
+    return gift, count
+
+
+def is_explicit_gift_text(text: str | None) -> bool:
+    if not text:
+        return False
+    compact = " ".join(text.split())
+    if CHAT_LINE_RE.search(_last_non_empty_line(compact)):
+        return False
+    return bool(re.search(r"(送出|送出了|赠送|送了|送给|送上)", compact))
+
+
+def is_gift_action_content(text: str | None) -> bool:
+    return bool(text and GIFT_ACTION_RE.match(" ".join(text.split())))
+
+
 def gift_name_from_media_labels(labels: object) -> str | None:
     if not isinstance(labels, list):
         return None
@@ -208,6 +274,24 @@ def gift_name_from_media_labels(labels: object) -> str | None:
         cleaned = clean_gift_name(_clean(label))
         if cleaned:
             return cleaned
+    return None
+
+
+def gift_name_from_child_summaries(children: object, raw: dict) -> str | None:
+    if not isinstance(children, list):
+        return None
+    for child in children:
+        if not isinstance(child, dict):
+            continue
+        src = _clean(child.get("src")) or _clean(child.get("backgroundImage"))
+        if not src or "new_user_grade" in src:
+            continue
+        for image_hash, gift_name in GIFT_IMAGE_NAME_BY_HASH.items():
+            if image_hash in src:
+                raw["gift_image_url"] = src
+                return gift_name
+        if "webcast" in src and re.search(r"\.(png|webp|jpg|jpeg)", src, re.IGNORECASE):
+            raw["gift_image_url"] = src
     return None
 
 

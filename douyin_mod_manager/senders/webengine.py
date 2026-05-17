@@ -122,9 +122,12 @@ class WebEngineMessageSender(MessageSender):
             return null;
           }};
           const explicitLoginPrompt = Array.from(document.querySelectorAll("div, span, p, button, textarea, input, [contenteditable='true']"))
-            .find((node) => isVisible(node) && loginTextPattern.test(textOf(node)));
+            .map((node) => [node, textOf(node)])
+            .filter(([node, text]) => isVisible(node) && loginTextPattern.test(text))
+            .sort((a, b) => a[1].length - b[1].length)[0];
           if (explicitLoginPrompt) {{
-            return {{ canSend: false, reason: `检测到未登录聊天框：${{textOf(explicitLoginPrompt).slice(0, 40)}}` }};
+            const matchedText = explicitLoginPrompt[1].match(loginTextPattern)?.[0] || explicitLoginPrompt[1];
+            return {{ canSend: false, reason: `检测到未登录聊天框：${{matchedText.slice(0, 24)}}` }};
           }}
           const loginIndicator = findFirst(loginSelectors, (node) => {{
             if (!isVisible(node)) return false;
