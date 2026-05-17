@@ -122,6 +122,21 @@ class DomParserTest(unittest.TestCase):
         self.assertEqual(parsed.username, "张晓ᴸᴶ ₛ")
         self.assertEqual(parsed.content, "[抱抱你]")
 
+    def test_uses_media_label_when_structured_content_is_only_username(self) -> None:
+        parsed = normalize_dom_record(
+            {
+                "type": "chat",
+                "username": "明*****：",
+                "content": "明*****：",
+                "raw": {"text": "明*****：", "mediaLabels": ["[鼓掌]"], "parseMethod": "interactive"},
+            }
+        )
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.username, "明*****")
+        self.assertEqual(parsed.content, "[鼓掌]")
+
     def test_parses_user_enter_name(self) -> None:
         parsed = normalize_dom_record(
             {

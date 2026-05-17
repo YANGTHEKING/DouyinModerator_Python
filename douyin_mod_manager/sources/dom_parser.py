@@ -90,6 +90,11 @@ def normalize_dom_record(record: dict) -> ParsedDomRecord | None:
         stripped = stripped.removeprefix(":").removeprefix("：").strip()
         content = stripped or content
 
+    if event_type == "chat" and username and _content_is_only_username(content, username):
+        labels = [str(label).strip() for label in raw.get("mediaLabels", []) if str(label).strip()]
+        if labels:
+            content = " ".join(labels)
+
     if not username and not content and not visible_text:
         return None
 
@@ -329,6 +334,14 @@ def _clean(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _content_is_only_username(content: str | None, username: str) -> bool:
+    if not content:
+        return True
+    normalized_content = content.strip().rstrip(":：").strip()
+    normalized_username = username.strip().rstrip(":：").strip()
+    return normalized_content == normalized_username
 
 
 def _last_non_empty_line(text: str) -> str:
