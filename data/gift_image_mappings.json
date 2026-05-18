@@ -361,6 +361,16 @@
       "source": "catalog"
     },
     {
+      "image_key": "0e176c2d0ac040ae0cad13d100f61b02",
+      "name": "㜂孞 成功冠名了热气球",
+      "diamond_count": 0,
+      "image_url": "https://p11-webcast.douyinpic.com/img/webcast/0e176c2d0ac040ae0cad13d100f61b02.png~tplv-resize:45:45.png",
+      "first_seen": "2026-05-18T12:30:03",
+      "last_seen": "2026-05-18T12:30:03",
+      "seen_count": 2,
+      "source": "observed"
+    },
+    {
       "image_key": "652cac4b678b56a958de4791100c0f77",
       "name": "一吻定情",
       "diamond_count": 29,
@@ -601,16 +611,6 @@
       "source": "catalog"
     },
     {
-      "image_key": "11bcb8bdc16b66fb330346cb478c1c98",
-      "name": "为你点亮",
-      "diamond_count": 9,
-      "image_url": "https://p11-webcast.douyinpic.com/img/webcast/11bcb8bdc16b66fb330346cb478c1c98~tplv-obj.png",
-      "first_seen": "2026-05-17T16:53:48",
-      "last_seen": "2026-05-18T01:51:35",
-      "seen_count": 50,
-      "source": "catalog"
-    },
-    {
       "image_key": "2a662f54719aeb0538e3ed05dcb365d3",
       "name": "为你点亮",
       "diamond_count": 1,
@@ -668,6 +668,16 @@
       "first_seen": "",
       "last_seen": "",
       "seen_count": 0,
+      "source": "catalog"
+    },
+    {
+      "image_key": "11bcb8bdc16b66fb330346cb478c1c98",
+      "name": "为你闪耀",
+      "diamond_count": 9,
+      "image_url": "https://p11-webcast.douyinpic.com/img/webcast/11bcb8bdc16b66fb330346cb478c1c98~tplv-obj.png",
+      "first_seen": "2026-05-17T16:53:48",
+      "last_seen": "2026-05-18T01:51:35",
+      "seen_count": 50,
       "source": "catalog"
     },
     {
@@ -1111,6 +1121,16 @@
       "source": "catalog"
     },
     {
+      "image_key": "https://p3-webcast.douyinpic.com/img/webcast/popularbox/first_class_box_close.png~tplv-obj.image",
+      "name": "入门人气宝箱",
+      "diamond_count": 0,
+      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/popularbox/first_class_box_close.png~tplv-obj.image",
+      "first_seen": "2026-05-18T12:38:43",
+      "last_seen": "2026-05-18T12:38:43",
+      "seen_count": 1,
+      "source": "observed"
+    },
+    {
       "image_key": "f50b70e3e962281d573cef227c61f16a",
       "name": "共赏明月",
       "diamond_count": 600,
@@ -1174,10 +1194,10 @@
       "image_key": "c169b7ff42cb389d73878e87594c7846",
       "name": "加油鸭",
       "diamond_count": 15,
-      "image_url": "https://p11-webcast.douyinpic.com/img/webcast/c169b7ff42cb389d73878e87594c7846.png~tplv-obj.png",
+      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/c169b7ff42cb389d73878e87594c7846.png~tplv-resize:45:45.png",
       "first_seen": "2026-05-17T19:20:23",
-      "last_seen": "2026-05-18T01:31:11",
-      "seen_count": 3,
+      "last_seen": "2026-05-18T14:24:55",
+      "seen_count": 5,
       "source": "observed"
     },
     {
@@ -1534,10 +1554,10 @@
       "image_key": "71801c53df3977b1470ac2afb8250ac1",
       "name": "大啤酒",
       "diamond_count": 2,
-      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/71801c53df3977b1470ac2afb8250ac1.png~tplv-obj.png",
+      "image_url": "https://p9-webcast.byteimg.com/img/webcast/71801c53df3977b1470ac2afb8250ac1.png~tplv-resize:45:45.png",
       "first_seen": "2026-05-17T18:51:19",
-      "last_seen": "2026-05-18T01:49:49",
-      "seen_count": 27,
+      "last_seen": "2026-05-18T14:42:27",
+      "seen_count": 29,
       "source": "observed"
     },
     {
@@ -2179,6 +2199,26 @@
       "last_seen": "",
       "seen_count": 0,
       "source": "catalog"
+    },
+    {
+      "image_key": "https://p3-webcast.douyinpic.com/img/webcast/buff_icon_20250808_42.webp~tplv-obj.image",
+      "name": "恭喜 \n苏念\nNㅤ 成为星守护",
+      "diamond_count": 0,
+      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/buff_icon_20250808_42.webp~tplv-obj.image",
+      "first_seen": "2026-05-18T03:28:54",
+      "last_seen": "2026-05-18T03:28:54",
+      "seen_count": 1,
+      "source": "observed"
+    },
+    {
+      "image_key": "https://p3-webcast.douyinpic.com/img/webcast/league_icon_level_8.webp~tplv-obj.image",
+      "name": "恭喜念椿🍃（潼）成为No.8本场1000贡献用户",
+      "diamond_count": 0,
+      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/league_icon_level_8.webp~tplv-obj.image",
+      "first_seen": "2026-05-18T12:28:55",
+      "last_seen": "2026-05-18T12:28:55",
+      "seen_count": 1,
+      "source": "observed"
     },
     {
       "image_key": "03f22c064c8ddf681e9f3633b518c57c",
@@ -3024,10 +3064,10 @@
       "image_key": "2756f07818a73a8c79f024e959665110",
       "name": "棒棒糖",
       "diamond_count": 9,
-      "image_url": "https://p11-webcast.douyinpic.com/img/webcast/2756f07818a73a8c79f024e959665110.png~tplv-obj.png",
+      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/2756f07818a73a8c79f024e959665110.png~tplv-resize:45:45.png",
       "first_seen": "2026-05-17T19:20:53",
-      "last_seen": "2026-05-17T22:11:15",
-      "seen_count": 8,
+      "last_seen": "2026-05-18T12:29:39",
+      "seen_count": 10,
       "source": "observed"
     },
     {
@@ -3997,6 +4037,16 @@
       "image_url": "https://p11-webcast.douyinpic.com/img/webcast/red_packet_diamond.png~tplv-obj.image",
       "first_seen": "2026-05-17T18:51:58",
       "last_seen": "2026-05-17T18:51:58",
+      "seen_count": 1,
+      "source": "observed"
+    },
+    {
+      "image_key": "https://p3-webcast.douyinpic.com/img/webcast/red_packet_diamond.png~tplv-obj.image",
+      "name": "礼物红包",
+      "diamond_count": 0,
+      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/red_packet_diamond.png~tplv-obj.image",
+      "first_seen": "2026-05-18T16:35:02",
+      "last_seen": "2026-05-18T16:35:02",
       "seen_count": 1,
       "source": "observed"
     },
@@ -5101,6 +5151,46 @@
       "source": "catalog"
     },
     {
+      "image_key": "https://lf3-webcastcdn-tos.douyinstatic.com/obj/webcast/7586759991441380352.png",
+      "name": "",
+      "diamond_count": 0,
+      "image_url": "https://lf3-webcastcdn-tos.douyinstatic.com/obj/webcast/7586759991441380352.png",
+      "first_seen": "2026-05-18T02:51:58",
+      "last_seen": "2026-05-18T02:57:39",
+      "seen_count": 2,
+      "source": "observed"
+    },
+    {
+      "image_key": "https://lf5-webcastcdn-tos.douyinstatic.com/obj/webcast/7305020531731993627.png",
+      "name": "",
+      "diamond_count": 0,
+      "image_url": "https://lf5-webcastcdn-tos.douyinstatic.com/obj/webcast/7305020531731993627.png",
+      "first_seen": "2026-05-18T02:54:22",
+      "last_seen": "2026-05-18T02:54:31",
+      "seen_count": 2,
+      "source": "observed"
+    },
+    {
+      "image_key": "https://lf6-webcastcdn-tos.douyinstatic.com/obj/webcast/7305020531731993627.png",
+      "name": "",
+      "diamond_count": 0,
+      "image_url": "https://lf6-webcastcdn-tos.douyinstatic.com/obj/webcast/7305020531731993627.png",
+      "first_seen": "2026-05-18T02:58:36",
+      "last_seen": "2026-05-18T02:58:55",
+      "seen_count": 2,
+      "source": "observed"
+    },
+    {
+      "image_key": "https://lf6-webcastcdn-tos.douyinstatic.com/obj/webcast/7496465408658904099.png",
+      "name": "",
+      "diamond_count": 0,
+      "image_url": "https://lf6-webcastcdn-tos.douyinstatic.com/obj/webcast/7496465408658904099.png",
+      "first_seen": "2026-05-18T03:10:43",
+      "last_seen": "2026-05-18T03:10:43",
+      "seen_count": 1,
+      "source": "observed"
+    },
+    {
       "image_key": "https://lf6-webcastcdn-tos.douyinstatic.com/obj/webcast/7586759991441380352.png",
       "name": "",
       "diamond_count": 0,
@@ -5117,6 +5207,16 @@
       "image_url": "https://p11-webcast.douyinpic.com/img/webcast/fusion_emoji/006--007--facenoface.png~tplv-resize:78:78.image",
       "first_seen": "2026-05-18T02:28:15",
       "last_seen": "2026-05-18T02:28:15",
+      "seen_count": 1,
+      "source": "observed"
+    },
+    {
+      "image_key": "https://p3-webcast.douyinpic.com/img/webcast/fusion_emoji/017--009--hand.png~tplv-resize:78:78.image",
+      "name": "",
+      "diamond_count": 0,
+      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/fusion_emoji/017--009--hand.png~tplv-resize:78:78.image",
+      "first_seen": "2026-05-18T03:07:38",
+      "last_seen": "2026-05-18T03:07:38",
       "seen_count": 1,
       "source": "observed"
     }

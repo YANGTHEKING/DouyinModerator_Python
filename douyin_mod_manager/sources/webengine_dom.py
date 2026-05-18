@@ -278,7 +278,8 @@ class WebEngineDomEventSource(EventSource):
             if (!/[：:]/.test(text) && /\\s+(关注了主播|关注主播|加入了粉丝团|成为了粉丝)\\s*$/.test(text)) return "follow";
             if (!/[：:]/.test(text) && /\\s+(来了|进入直播间|进入了直播间|进场)\\s*$/.test(text)) return "user_enter";
             if (/为主播点赞了|推荐直播给Ta的朋友|推荐了直播|刚刚升级至Lv\\./.test(text)) return "system";
-            if (/系统|提示|直播间/.test(text)) return "system";
+            if (!/[：:]/.test(text) && /^(系统|提示)/.test(text)) return "system";
+            if (/进入了?直播间/.test(text) && !/[：:]/.test(text)) return "system";
             return "chat";
           }};
 

@@ -5,11 +5,66 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QUrl, Qt
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtGui import QPixmap, QAction
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from PySide6.QtTest import QTest
+from PySide6.QtWebEngineCore import QWebEngineUrlRequestInterceptor, QWebEngineProfile
 from PySide6.QtWebEngineWidgets import QWebEngineView
+
+
+class _StreamUrlInterceptor(QWebEngineUrlRequestInterceptor):
+    """Intercepts all network requests to detect stream URLs."""
+
+    def __init__(self, on_stream_url):
+        super().__init__()
+        self._on_stream_url = on_stream_url
+        self._seen: set[str] = set()
+        self._best_url: str | None = None
+        self._best_score: int = -1
+
+    @staticmethod
+    def _score_url(url: str) -> int:
+        lower = url.lower()
+        if "only_audio" in lower:
+            return -1
+        if "_or4" in lower:
+            return 5
+        if "_uhd" in lower:
+            return 4
+        if "_hd" in lower:
+            return 3
+        if "_md" in lower:
+            return 2
+        if "_sd" in lower:
+            return 1
+        if "_ld" in lower:
+            return 0
+        return 3
+
+    def interceptRequest(self, info):
+        url = info.requestUrl().toString()
+        lower = url.lower()
+        # Log interesting requests to stderr
+        if any(kw in lower for kw in ("flv", "m3u8", "webm", "pull-hs", "pull-hl",
+                                       "pull-c6", "pull-c3", "stream",
+                                       "douyin", "amemv", "byteimg",
+                                       "pstatp.com", "bytegoofy.com",
+                                       "snssdk.com", "ixigua.com")):
+            import sys
+            sys.stderr.write(f"[DMM-REQ] {url[:200]}\n")
+            sys.stderr.flush()
+        # Detect actual stream URLs and pick best quality
+        if any(ext in lower for ext in (".flv", ".m3u8", "flv?", "flv&")):
+            if url not in self._seen:
+                self._seen.add(url)
+                score = self._score_url(url)
+                if score > self._best_score:
+                    self._best_score = score
+                    self._best_url = url
+                    self._on_stream_url(url)
+
+
 from PySide6.QtWidgets import (
     QComboBox,
     QCheckBox,
@@ -24,6 +79,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QStatusBar,
     QTableWidget,
@@ -46,12 +102,15 @@ from douyin_mod_manager.senders.mock import MockMessageSender
 from douyin_mod_manager.senders.webengine import WebEngineMessageSender
 from douyin_mod_manager.sources.mock import MockEventSource
 from douyin_mod_manager.sources.gift_images import GiftImageRegistry, gift_image_key
+from douyin_mod_manager.sources.ffmpeg_proxy import FFmpegStreamProxy
 from douyin_mod_manager.sources.webengine_dom import WebEngineDomEventSource
 from douyin_mod_manager.storage.database import Database
 from douyin_mod_manager.storage.repositories import SongRepository, SongStatus
 
 
 class MainWindow(QMainWindow):
+    _sig_create_overlay = Signal()
+
     def __init__(self, database: Database) -> None:
         super().__init__()
         self.database = database
@@ -71,6 +130,7 @@ class MainWindow(QMainWindow):
         self._refreshing_gift_image_table = False
         self._gift_sort_by = "name"
         self._all_events: list[tuple[str, LiveEvent]] = []
+        self._ffmpeg_proxy = FFmpegStreamProxy(on_status=self.statusBar().showMessage)
         self.gift_image_cache_dir = Path(__file__).resolve().parents[2] / "data" / "gift_image_cache"
         self.gift_image_network = QNetworkAccessManager(self)
         self._pending_gift_image_labels: dict[str, list[QLabel]] = {}
@@ -94,6 +154,12 @@ class MainWindow(QMainWindow):
         self._connect_signals()
         self._activate_web_source()
         self.statusBar().showMessage("WebEngine DOM 观察源已就绪，点击加载后进入直播间；自动发送默认暂停")
+        QTimer.singleShot(1000, self.load_web_url)
+
+    def _log_debug(self, msg: str) -> None:
+        import sys
+        sys.stderr.write(f"[DMM] {msg}\n")
+        sys.stderr.flush()
 
     def _build_menu_bar(self) -> None:
         menubar = QMenuBar(self)
@@ -157,16 +223,23 @@ class MainWindow(QMainWindow):
         self.hide_like_events_checkbox.setChecked(False)
         toolbar.addWidget(self.hide_like_events_checkbox)
 
+        self.transcode_button = QPushButton("转码画面")
+        self.transcode_button.setCheckable(True)
+        toolbar.addWidget(self.transcode_button)
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._build_web_placeholder())
         splitter.addWidget(self._build_event_tabs())
         splitter.addWidget(self._build_action_panel())
-        splitter.setSizes([480, 520, 420])
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 3)
+        splitter.setStretchFactor(2, 2)
         self.setCentralWidget(splitter)
         self.setStatusBar(QStatusBar())
 
     def _build_web_placeholder(self) -> QWidget:
         panel = QWidget()
+        panel.setMinimumWidth(360)
         layout = QVBoxLayout(panel)
 
         title = QLabel("WebEngine 页面区")
@@ -175,7 +248,7 @@ class MainWindow(QMainWindow):
 
         controls = QHBoxLayout()
         self.url_input = QLineEdit()
-        self.url_input.setText("531159862032")
+        self.url_input.setText("88162227205")
         self.url_input.setPlaceholderText("输入抖音直播房间号")
         self.load_url_button = QPushButton("加载")
         self.load_demo_button = QPushButton("Demo")
@@ -194,7 +267,14 @@ class MainWindow(QMainWindow):
         self.login_status_label.setStyleSheet("color: #666;")
         layout.addWidget(self.login_status_label)
 
+        # Horizontal container: web_view left, overlay container right
+        web_container = QWidget()
+        web_layout = QHBoxLayout(web_container)
+        web_layout.setContentsMargins(0, 0, 0, 0)
+        web_layout.setSpacing(2)
+
         self.web_view = QWebEngineView()
+        self.web_view.setZoomFactor(0.5)
         self.web_view.setHtml(
             """
             <html><body style="font-family: -apple-system; padding: 24px;">
@@ -204,11 +284,25 @@ class MainWindow(QMainWindow):
             </body></html>
             """
         )
-        layout.addWidget(self.web_view, 1)
+        # Install network request interceptor
+        self._stream_interceptor = _StreamUrlInterceptor(self._on_intercepted_stream_url)
+        profile = self.web_view.page().profile()
+        profile.setUrlRequestInterceptor(self._stream_interceptor)
+        web_layout.addWidget(self.web_view, 1)
+
+        # Overlay container: holds the transcode player widget, hidden by default
+        self._overlay_container = QWidget()
+        self._overlay_container.setVisible(False)
+        self._overlay_layout = QVBoxLayout(self._overlay_container)
+        self._overlay_layout.setContentsMargins(0, 0, 0, 0)
+        web_layout.addWidget(self._overlay_container, 1)
+
+        layout.addWidget(web_container, 1)
         return panel
 
     def _build_event_tabs(self) -> QWidget:
         self._tabs = QTabWidget()
+        self._tabs.setMinimumWidth(300)
         tabs = self._tabs
         self.event_table = QTableWidget(0, 4)
         self.event_table.setHorizontalHeaderLabels(["时间", "类型", "用户", "内容"])
@@ -266,11 +360,13 @@ class MainWindow(QMainWindow):
         return tabs
 
     def _build_action_panel(self) -> QWidget:
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
+        inner = QWidget()
+        layout = QVBoxLayout(inner)
+        layout.setContentsMargins(4, 4, 4, 4)
 
         layout.addWidget(QLabel("待确认回复 / 自动动作"))
         self.action_list = QListWidget()
+        self.action_list.setMinimumHeight(120)
         layout.addWidget(self.action_list, 2)
 
         buttons = QHBoxLayout()
@@ -304,7 +400,13 @@ class MainWindow(QMainWindow):
         self.like_status_label = QLabel("点赞状态：未启动")
         self.like_status_label.setStyleSheet("color: #666;")
         layout.addWidget(self.like_status_label)
-        return panel
+
+        scroll = QScrollArea()
+        scroll.setWidget(inner)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setMinimumWidth(260)
+        return scroll
 
     def _connect_signals(self) -> None:
         self.mock_source.event_received.connect(lambda event: self.on_source_event(event, "mock"))
@@ -333,6 +435,8 @@ class MainWindow(QMainWindow):
         self.send_quick_button.clicked.connect(self.send_quick_reply)
         self.like_once_button.clicked.connect(self.perform_live_like)
         self.auto_like_button.toggled.connect(self.on_auto_like_toggled)
+        self.transcode_button.toggled.connect(self.on_transcode_toggled)
+        self._sig_create_overlay.connect(self._create_transcode_overlay)
         self.parse_debug_table.itemSelectionChanged.connect(self.on_parse_debug_selection_changed)
         self.gift_image_table.cellChanged.connect(self.on_gift_image_cell_changed)
         self.refresh_gift_images_button.clicked.connect(self.refresh_gift_image_table)
@@ -424,6 +528,29 @@ class MainWindow(QMainWindow):
         self.web_view.setUrl(QUrl(self._douyin_live_url(room_or_url)))
         self._activate_web_source()
         QTimer.singleShot(2000, self.start_dom_button.click)
+        # Poll until page URL matches live.douyin.com, then auto-transcode
+        self._wait_for_page_count = 0
+        self._wait_for_page_timer = QTimer(self)
+        self._wait_for_page_timer.timeout.connect(self._check_page_ready)
+        self._wait_for_page_timer.start(2000)
+
+    def _check_page_ready(self) -> None:
+        self._wait_for_page_count += 1
+        if self._wait_for_page_count > 15:  # 30s max
+            self._wait_for_page_timer.stop()
+            self._log_debug("page ready check timed out")
+            return
+        self.web_view.page().runJavaScript(
+            "window.location.href",
+            lambda url: self._on_page_url_check(str(url or "").strip()),
+        )
+
+    def _on_page_url_check(self, url: str) -> None:
+        self._log_debug(f"page poll #{self._wait_for_page_count}: {url[:80]}")
+        if "live.douyin.com/" in url and not self.transcode_button.isChecked():
+            self._wait_for_page_timer.stop()
+            self._log_debug(f"page ready, auto-starting transcode")
+            QTimer.singleShot(1000, self.transcode_button.click)
 
     def load_demo_page(self) -> None:
         demo_path = Path(__file__).resolve().parents[2] / "tools" / "demo_live_room.html"
@@ -821,6 +948,377 @@ class MainWindow(QMainWindow):
             self.like_status_label.setText("点赞状态：已停止")
             self.like_status_label.setStyleSheet("color: #666;")
 
+    def on_transcode_toggled(self, checked: bool) -> None:
+        self._log_debug(f"on_transcode_toggled checked={checked}")
+        if checked:
+            self.transcode_button.setText("停止转码")
+            self._start_transcode()
+        else:
+            self.transcode_button.setText("转码画面")
+            self._ffmpeg_proxy.stop()
+            self._clear_overlay()
+            self.statusBar().showMessage("转码已停止")
+
+    def _start_transcode(self) -> None:
+        import re
+        import threading
+        import urllib.request
+
+        # Inject a JavaScript watcher that monitors for stream URLs
+        # Douyin loads stream data dynamically after the page loads
+        watcher_js = r'''
+        (function() {
+            if (window.__dmmWatcher) clearInterval(window.__dmmWatcher);
+            window.__dmmStreamUrl = null;
+            window.__dmmInterceptedUrls = [];
+
+            function scoreUrl(u) {
+                if (!u || u.indexOf('only_audio') !== -1) return -1;
+                if (u.indexOf('_or4') !== -1) return 5;
+                if (u.indexOf('_uhd') !== -1) return 4;
+                if (u.indexOf('_Stage0T000hd') !== -1) return 4;
+                if (u.indexOf('_Stage0T000ld') !== -1) return 3;
+                if (u.indexOf('_md') !== -1) return 2;
+                if (u.indexOf('_sd') !== -1) return 1;
+                if (u.indexOf('_ld') !== -1) return 0;
+                return 3;
+            }
+
+            function findUrls(text) {
+                var matches = text.match(/https?:[^\s"']*\.flv(?:\\u0026|[^\s"'])*/g);
+                if (!matches) return [];
+                var urls = [];
+                for (var i = 0; i < matches.length; i++) {
+                    urls.push(matches[i].replace(/\\u0026/g, '&'));
+                }
+                return urls;
+            }
+
+            function pickBest(urls) {
+                var withAuth = urls.filter(function(u) {
+                    return u.indexOf('wsSecret') !== -1 || (u.indexOf('expire=') !== -1 && u.indexOf('sign=') !== -1);
+                });
+                var pool = withAuth.length > 0 ? withAuth : urls;
+                var best = null, bestScore = -1;
+                for (var i = 0; i < pool.length; i++) {
+                    var s = scoreUrl(pool[i]);
+                    if (s > bestScore) { bestScore = s; best = pool[i]; }
+                }
+                return best;
+            }
+
+            function checkUrl(url) {
+                if (!url) return;
+                var lower = url.toLowerCase();
+                if (lower.indexOf('.flv') !== -1 || lower.indexOf('flv?') !== -1 || lower.indexOf('flv&') !== -1 ||
+                    lower.indexOf('.m3u8') !== -1 || lower.indexOf('pull-hs') !== -1 || lower.indexOf('pull-hl') !== -1 ||
+                    lower.indexOf('pull-c6') !== -1 || lower.indexOf('pull-c3') !== -1) {
+                    window.__dmmInterceptedUrls.push(url);
+                    if (!window.__dmmStreamUrl && (lower.indexOf('.flv') !== -1 || lower.indexOf('flv?') !== -1 || lower.indexOf('flv&') !== -1)) {
+                        window.__dmmStreamUrl = url;
+                    }
+                }
+            }
+
+            // Intercept XMLHttpRequest
+            var origOpen = XMLHttpRequest.prototype.open;
+            var origSend = XMLHttpRequest.prototype.send;
+            XMLHttpRequest.prototype.open = function(method, url) {
+                this._dmmUrl = url;
+                return origOpen.apply(this, arguments);
+            };
+            XMLHttpRequest.prototype.send = function() {
+                var self = this;
+                this.addEventListener('load', function() {
+                    try {
+                        var respUrl = self.responseURL || self._dmmUrl || '';
+                        checkUrl(respUrl);
+                        // Also check response text for embedded URLs
+                        if (self.responseText && typeof self.responseText === 'string') {
+                            var urls = findUrls(self.responseText);
+                            if (urls.length > 0) {
+                                var best = pickBest(urls);
+                                if (best) window.__dmmStreamUrl = best;
+                            }
+                        }
+                    } catch(e) {}
+                });
+                return origSend.apply(this, arguments);
+            };
+
+            // Intercept fetch
+            var origFetch = window.fetch;
+            window.fetch = function() {
+                var url = arguments[0];
+                if (typeof url === 'string') checkUrl(url);
+                else if (url && url.url) checkUrl(url.url);
+                return origFetch.apply(this, arguments).then(function(resp) {
+                    try { checkUrl(resp.url); } catch(e) {}
+                    return resp;
+                });
+            };
+
+            function scanPage() {
+                var scripts = document.querySelectorAll('script');
+                var allUrls = [];
+                for (var j = 0; j < scripts.length; j++) {
+                    var txt = scripts[j].textContent || '';
+                    allUrls = allUrls.concat(findUrls(txt));
+                }
+                var best = pickBest(allUrls);
+                if (best) { window.__dmmStreamUrl = best; return true; }
+                return false;
+            }
+
+            // Try webcast API
+            function tryApi() {
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', '/webcast/room/web/enter/?aid=6383&web_rid=' + (window.location.pathname.match(/\\d+/) || [''])[0]);
+                xhr.onload = function() {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        var room = data.data && data.data.data && data.data.data[0];
+                        if (room && room.stream_url) {
+                            // Try flv_pull_url
+                            if (room.stream_url.flv_pull_url) {
+                                var flv = room.stream_url.flv_pull_url;
+                                var keys = Object.keys(flv);
+                                if (keys.length > 0) {
+                                    window.__dmmStreamUrl = flv[keys[0]];
+                                }
+                            }
+                            // Try hls_pull_url_map
+                            if (room.stream_url.hls_pull_url_map) {
+                                var hls = room.stream_url.hls_pull_url_map;
+                                var hkeys = Object.keys(hls);
+                                if (hkeys.length > 0 && !window.__dmmStreamUrl) {
+                                    window.__dmmStreamUrl = hls[hkeys[0]];
+                                }
+                            }
+                            // Try stream_url.live_core_sdk_data
+                            var lcd = room.stream_url.live_core_sdk_data;
+                            if (lcd && lcd.pull_data && lcd.pull_data.stream_data) {
+                                try {
+                                    var sd = JSON.parse(lcd.pull_data.stream_data);
+                                    if (sd && sd.data) {
+                                        var dk = Object.keys(sd.data);
+                                        for (var i = 0; i < dk.length; i++) {
+                                            var d = sd.data[dk[i]];
+                                            if (d.main && d.main.flv) {
+                                                window.__dmmStreamUrl = d.main.flv;
+                                                break;
+                                            }
+                                            if (d.main && d.main.hls) {
+                                                if (!window.__dmmStreamUrl) window.__dmmStreamUrl = d.main.hls;
+                                            }
+                                        }
+                                    }
+                                } catch(e2) {}
+                            }
+                        }
+                    } catch(e) {}
+                };
+                xhr.send();
+            }
+
+            // Also scan for PerformanceResourceTiming entries (actual fetched URLs)
+            function scanResourceTiming() {
+                try {
+                    var entries = performance.getEntriesByType('resource');
+                    for (var i = 0; i < entries.length; i++) {
+                        checkUrl(entries[i].name);
+                    }
+                } catch(e) {}
+            }
+
+            // Initial scan
+            if (!scanPage()) {
+                tryApi();
+                scanResourceTiming();
+                // Poll every 2s for up to 30s
+                var count = 0;
+                window.__dmmWatcher = setInterval(function() {
+                    count++;
+                    if (window.__dmmStreamUrl || count > 15) {
+                        clearInterval(window.__dmmWatcher);
+                        return;
+                    }
+                    scanResourceTiming();
+                    if (!scanPage() && count % 5 === 0) {
+                        tryApi();
+                    }
+                }, 2000);
+            }
+            return 'watching';
+        })()
+        '''
+
+        self.web_view.page().runJavaScript(watcher_js, lambda r: QTimer.singleShot(1000, self._poll_for_stream_url))
+
+    def _poll_for_stream_url(self) -> None:
+        """Poll the injected watcher for a found stream URL."""
+        def _check(url_str):
+            url_str = str(url_str or "").strip()
+            if url_str and url_str.startswith("http"):
+                if self._ffmpeg_proxy.running:
+                    self._log_debug(f"stream URL found but FFmpeg already running, skipping: {url_str[:80]}")
+                else:
+                    self._log_debug(f"stream URL found: {url_str[:120]}")
+                    self._start_ffmpeg_with_url(url_str)
+            elif self.transcode_button.isChecked():
+                # Keep polling
+                QTimer.singleShot(2000, self._poll_for_stream_url)
+            # else: user unchecked, stop polling
+
+        self.web_view.page().runJavaScript("window.__dmmStreamUrl || ''", _check)
+
+    def _on_intercepted_stream_url(self, url: str) -> None:
+        """Called by the network interceptor when a stream URL is detected."""
+        self._log_debug(f"intercepted stream URL: {url[:150]}")
+        if self.transcode_button.isChecked() and not self._ffmpeg_proxy.running:
+            self._start_ffmpeg_with_url(url)
+
+    def _start_ffmpeg_with_url(self, stream_url: str) -> None:
+        self._log_debug(f"starting FFmpeg with: {stream_url[:120]}")
+        # Get cookies for CDN auth
+        def _got_cookies(cookie_str):
+            cookies = str(cookie_str or "")
+            self._log_debug(f"cookies for FFmpeg: {len(cookies)} bytes")
+            if self._ffmpeg_proxy.start(stream_url, cookies=cookies):
+                self._log_debug("FFmpeg started, creating overlay")
+                self._sig_create_overlay.emit()
+            else:
+                self._log_debug("FFmpeg failed to start")
+                QTimer.singleShot(0, lambda: self.transcode_button.setChecked(False))
+
+        self.web_view.page().runJavaScript("document.cookie", _got_cookies)
+
+    def _fetch_and_start_transcode(self, page_url: str, cookies: str) -> None:
+        import re
+        import threading
+        import urllib.request
+
+        self._log_debug(f"page_url={page_url}")
+        self._log_debug(f"cookies len={len(cookies)}")
+        m = re.search(r"live\.douyin\.com/(\d+)", page_url)
+        if not m:
+            self.statusBar().showMessage("请先在 live.douyin.com 打开直播间")
+            self.transcode_button.setChecked(False)
+            self._log_debug("no room ID in URL")
+            return
+        room_id = m.group(1)
+        self.statusBar().showMessage(f"房间 {room_id}，正在获取流地址…")
+        self._log_debug(f"room_id={room_id}")
+
+        def _fetch():
+            try:
+                req = urllib.request.Request(
+                    f"https://live.douyin.com/{room_id}",
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                        "Accept": "text/html,application/xhtml+xml",
+                        "Accept-Encoding": "identity",
+                        "Cookie": cookies,
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    html = resp.read().decode("utf-8", errors="replace")
+                    self._log_debug(f"fetched HTML, len={len(html)}")
+            except Exception as exc:
+                self._log_debug(f"fetch error: {exc}")
+                QTimer.singleShot(0, lambda: self._on_fetch_error(str(exc)))
+                return
+
+            # Prefer higher quality: uhd > or4 > md > sd > ld
+            import re as _re
+            best_url = None
+
+            # Method 1: extract flv_pull_url JSON keys (most reliable)
+            flv_match = _re.search(r'"flv_pull_url"\s*:\s*\{([^}]+)\}', html)
+            if flv_match:
+                self._log_debug(f"found flv_pull_url block")
+                quality_keys = ["FULL_HD1", "HD1", "SD1", "LD1", "ORIGIN"]
+                for qkey in quality_keys:
+                    m_url = _re.search(rf'"{qkey}"\s*:\s*"(https?://[^"]+)"', flv_match.group(1))
+                    if m_url:
+                        url = m_url.group(1).replace("\\u0026", "&")
+                        best_url = url
+                        self._log_debug(f"flv_pull_url {qkey}: {url[:120]}")
+                        break
+
+            # Method 2: regex for FLV URLs with various quality suffixes
+            if not best_url:
+                quality_suffixes = ["_uhd", "_or4", "_md", "_sd", "_ld", "_ld2", "_ld4", ""]
+                for suffix in quality_suffixes:
+                    pattern = rf'(https?://pull-\w+[^\s"\\]+{suffix}\.flv[^\s"\\]*)'
+                    matches = _re.findall(pattern, html)
+                    if matches:
+                        raw = matches[0]
+                        url = raw.replace("\\u0026", "&")
+                        best_url = url
+                        self._log_debug(f"regex FLV (suffix={suffix}): {url[:120]}")
+                        break
+
+            # Method 3: fallback to any m3u8
+            if not best_url:
+                matches = _re.findall(r'(https?://pull-\w+[^\s"\\]+\.m3u8[^\s"\\]*)', html)
+                if matches:
+                    best_url = matches[0].replace("\\u0026", "&")
+                    self._log_debug(f"regex M3U8: {best_url[:120]}")
+
+            if best_url:
+                self._log_debug(f"starting FFmpeg with: {best_url[:120]}")
+                if self._ffmpeg_proxy.start(best_url, cookies=cookies):
+                    self._log_debug("FFmpeg started, creating overlay")
+                    self._sig_create_overlay.emit()
+                else:
+                    self._log_debug("FFmpeg failed to start")
+                    QTimer.singleShot(0, lambda: self.transcode_button.setChecked(False))
+            else:
+                self._log_debug("no stream URL found in HTML")
+                QTimer.singleShot(0, lambda: self._on_fetch_error("页面中未找到流地址"))
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _on_fetch_error(self, msg: str) -> None:
+        self.statusBar().showMessage(f"获取流地址失败: {msg}")
+        self.transcode_button.setChecked(False)
+
+    def _create_transcode_overlay(self) -> None:
+        self.statusBar().showMessage("转码已启动，正在创建叠加画面…")
+        self._log_debug("creating native Qt overlay")
+
+        # Clean up previous overlay
+        self._clear_overlay()
+
+        # Create overlay inside the dedicated container layout
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+        overlay = QWebEngineView()
+        overlay.setUrl(QUrl("http://127.0.0.1:18923/player.html"))
+        self._overlay_layout.addWidget(overlay)
+        self._overlay_container.setVisible(True)
+
+        # Handle close and status via title change
+        def on_title_changed(title):
+            if title == "DMM_CLOSE":
+                self._clear_overlay()
+                self._ffmpeg_proxy.stop()
+                self.transcode_button.setChecked(False)
+            elif title.startswith("DMM:"):
+                self._log_debug(f"player: {title[4:]}")
+
+        overlay.titleChanged.connect(on_title_changed)
+        self._hls_overlay = overlay
+        self._log_debug("native overlay created")
+
+    def _clear_overlay(self) -> None:
+        if hasattr(self, '_hls_overlay') and self._hls_overlay:
+            self._overlay_layout.removeWidget(self._hls_overlay)
+            self._hls_overlay.close()
+            self._hls_overlay = None
+        if hasattr(self, '_overlay_container'):
+            self._overlay_container.setVisible(False)
+
     def perform_live_like(self) -> None:
         if self.source is not self.web_source:
             self.like_status_label.setText("点赞状态：请先切到 WebEngine")
@@ -971,6 +1469,7 @@ class MainWindow(QMainWindow):
         self.web_source.stop()
         self.login_status_timer.stop()
         self.auto_like_timer.stop()
+        self._ffmpeg_proxy.stop()
         self.web_view.setUrl(QUrl("about:blank"))
         self.session.end()
         self.database.save_session(self.session)
