@@ -81,6 +81,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSplitter,
+    QSpinBox,
     QStatusBar,
     QTableWidget,
     QTableWidgetItem,
@@ -96,7 +97,6 @@ from douyin_mod_manager.core.rate_limit import SlidingWindowLimiter
 from douyin_mod_manager.core.rules import RuleEngine
 from douyin_mod_manager.core.sessions import LiveSession
 from douyin_mod_manager.features.gift_thanks import GiftThanksStrategy
-from douyin_mod_manager.features.risk import RiskDetector
 from douyin_mod_manager.features.song_queue import SongQueueService
 from douyin_mod_manager.senders.mock import MockMessageSender
 from douyin_mod_manager.senders.webengine import WebEngineMessageSender
@@ -120,7 +120,6 @@ class MainWindow(QMainWindow):
         self.rule_engine = RuleEngine()
         self.song_repository = SongRepository(database)
         self.song_service = SongQueueService(self.song_repository)
-        self.risk_detector = RiskDetector()
         self.gift_strategy = GiftThanksStrategy()
         self.limiter = SlidingWindowLimiter(max_events=3, window_seconds=60)
         self.auto_paused = True
@@ -147,9 +146,14 @@ class MainWindow(QMainWindow):
         self.login_status_timer = QTimer(self)
         self.login_status_timer.setInterval(5000)
         self.login_status_timer.timeout.connect(self.web_sender.refresh_sendability)
-        self.auto_like_timer = QTimer(self)
-        self.auto_like_timer.setInterval(15000)
-        self.auto_like_timer.timeout.connect(self.perform_live_like)
+        self._like_click_timer = QTimer(self)
+        self._like_click_timer.timeout.connect(self._do_like_click)
+        self._like_duration_timer = QTimer(self)
+        self._like_duration_timer.setSingleShot(True)
+        self._like_duration_timer.timeout.connect(self._stop_like_click)
+        self._danmaku_timer = QTimer(self)
+        self._danmaku_timer.timeout.connect(self._send_danmaku)
+        self._danmaku_index = 0
 
         self._connect_signals()
         self._activate_web_source()
@@ -227,14 +231,15 @@ class MainWindow(QMainWindow):
         self.transcode_button.setCheckable(True)
         toolbar.addWidget(self.transcode_button)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(self._build_web_placeholder())
-        splitter.addWidget(self._build_event_tabs())
-        splitter.addWidget(self._build_action_panel())
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 3)
-        splitter.setStretchFactor(2, 2)
-        self.setCentralWidget(splitter)
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter.addWidget(self._build_web_placeholder())
+        self._event_tabs_widget = self._build_event_tabs()
+        self._splitter.addWidget(self._event_tabs_widget)
+        self._splitter.addWidget(self._build_action_panel())
+        self._splitter.setStretchFactor(0, 3)
+        self._splitter.setStretchFactor(1, 3)
+        self._splitter.setStretchFactor(2, 2)
+        self.setCentralWidget(self._splitter)
         self.setStatusBar(QStatusBar())
 
     def _build_web_placeholder(self) -> QWidget:
@@ -267,11 +272,12 @@ class MainWindow(QMainWindow):
         self.login_status_label.setStyleSheet("color: #666;")
         layout.addWidget(self.login_status_label)
 
-        # Horizontal container: web_view left, overlay container right
-        web_container = QWidget()
-        web_layout = QHBoxLayout(web_container)
-        web_layout.setContentsMargins(0, 0, 0, 0)
-        web_layout.setSpacing(2)
+        # Container: web_view and overlay side by side, orientation set dynamically
+        self._web_container = QWidget()
+        self._web_layout = QHBoxLayout(self._web_container)
+        self._web_layout.setContentsMargins(0, 0, 0, 0)
+        self._web_layout.setSpacing(2)
+        self._overlay_aspect = 360 / 640  # default portrait, updated on meta
 
         self.web_view = QWebEngineView()
         self.web_view.setZoomFactor(0.5)
@@ -288,16 +294,16 @@ class MainWindow(QMainWindow):
         self._stream_interceptor = _StreamUrlInterceptor(self._on_intercepted_stream_url)
         profile = self.web_view.page().profile()
         profile.setUrlRequestInterceptor(self._stream_interceptor)
-        web_layout.addWidget(self.web_view, 1)
+        self._web_layout.addWidget(self.web_view, 1)
 
         # Overlay container: holds the transcode player widget, hidden by default
+        # Not added to any layout initially; placed dynamically on show/hide
         self._overlay_container = QWidget()
         self._overlay_container.setVisible(False)
         self._overlay_layout = QVBoxLayout(self._overlay_container)
         self._overlay_layout.setContentsMargins(0, 0, 0, 0)
-        web_layout.addWidget(self._overlay_container, 1)
 
-        layout.addWidget(web_container, 1)
+        layout.addWidget(self._web_container, 1)
         return panel
 
     def _build_event_tabs(self) -> QWidget:
@@ -381,25 +387,72 @@ class MainWindow(QMainWindow):
         for text in [
             "点歌请发送：点歌 歌名",
             "当前暂不接点歌，感谢理解。",
-            "请大家文明交流，专注直播内容。",
-            "PK 中理性应援，文明观看。",
         ]:
             self.quick_replies.addItem(text)
+        self.quick_replies.setEditTriggers(QListWidget.EditTrigger.DoubleClicked)
         layout.addWidget(self.quick_replies, 1)
-        self.send_quick_button = QPushButton("发送快捷回复")
-        layout.addWidget(self.send_quick_button)
+        quick_buttons = QHBoxLayout()
+        self.add_quick_button = QPushButton("添加")
+        self.del_quick_button = QPushButton("删除")
+        self.send_quick_button = QPushButton("发送选中")
+        quick_buttons.addWidget(self.add_quick_button)
+        quick_buttons.addWidget(self.del_quick_button)
+        quick_buttons.addWidget(self.send_quick_button)
+        layout.addLayout(quick_buttons)
 
-        layout.addWidget(QLabel("直播间点赞"))
-        like_buttons = QHBoxLayout()
-        self.like_once_button = QPushButton("点赞一次")
-        self.auto_like_button = QPushButton("自动低频点赞")
-        self.auto_like_button.setCheckable(True)
-        like_buttons.addWidget(self.like_once_button)
-        like_buttons.addWidget(self.auto_like_button)
-        layout.addLayout(like_buttons)
-        self.like_status_label = QLabel("点赞状态：未启动")
+        layout.addWidget(QLabel("直播间连点"))
+        like_controls = QHBoxLayout()
+        like_controls.addWidget(QLabel("间隔(ms)"))
+        self.like_interval_spin = QSpinBox()
+        self.like_interval_spin.setRange(50, 5000)
+        self.like_interval_spin.setValue(100)
+        like_controls.addWidget(self.like_interval_spin)
+        like_controls.addWidget(QLabel("时长(秒)"))
+        self.like_duration_spin = QSpinBox()
+        self.like_duration_spin.setRange(1, 60)
+        self.like_duration_spin.setValue(5)
+        like_controls.addWidget(self.like_duration_spin)
+        self.like_click_button = QPushButton("开始连点")
+        self.like_click_button.setCheckable(True)
+        like_controls.addWidget(self.like_click_button)
+        layout.addLayout(like_controls)
+        self.like_status_label = QLabel("连点状态：未启动")
         self.like_status_label.setStyleSheet("color: #666;")
         layout.addWidget(self.like_status_label)
+
+        layout.addWidget(QLabel("循环弹幕"))
+        self.danmaku_list = QListWidget()
+        self.danmaku_list.setEditTriggers(QListWidget.EditTrigger.DoubleClicked)
+        self.danmaku_list.setMaximumHeight(80)
+        for text in ["点歌请发送：点歌 歌名", "感谢大家的观看！"]:
+            item = QListWidgetItem(text)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+            self.danmaku_list.addItem(item)
+        layout.addWidget(self.danmaku_list)
+        danmaku_list_buttons = QHBoxLayout()
+        self.danmaku_add_button = QPushButton("添加")
+        self.danmaku_del_button = QPushButton("删除")
+        danmaku_list_buttons.addWidget(self.danmaku_add_button)
+        danmaku_list_buttons.addWidget(self.danmaku_del_button)
+        layout.addLayout(danmaku_list_buttons)
+        danmaku_controls = QHBoxLayout()
+        danmaku_controls.addWidget(QLabel("模式"))
+        self.danmaku_mode_combo = QComboBox()
+        self.danmaku_mode_combo.addItem("顺序", "sequential")
+        self.danmaku_mode_combo.addItem("随机", "random")
+        danmaku_controls.addWidget(self.danmaku_mode_combo)
+        danmaku_controls.addWidget(QLabel("间隔(秒)"))
+        self.danmaku_interval_spin = QSpinBox()
+        self.danmaku_interval_spin.setRange(1, 300)
+        self.danmaku_interval_spin.setValue(5)
+        danmaku_controls.addWidget(self.danmaku_interval_spin)
+        self.danmaku_start_button = QPushButton("开始弹幕")
+        self.danmaku_start_button.setCheckable(True)
+        danmaku_controls.addWidget(self.danmaku_start_button)
+        layout.addLayout(danmaku_controls)
+        self.danmaku_status_label = QLabel("弹幕状态：未启动")
+        self.danmaku_status_label.setStyleSheet("color: #666;")
+        layout.addWidget(self.danmaku_status_label)
 
         scroll = QScrollArea()
         scroll.setWidget(inner)
@@ -433,8 +486,12 @@ class MainWindow(QMainWindow):
         self.send_selected_button.clicked.connect(self.send_selected_action)
         self.discard_selected_button.clicked.connect(self.discard_selected_action)
         self.send_quick_button.clicked.connect(self.send_quick_reply)
-        self.like_once_button.clicked.connect(self.perform_live_like)
-        self.auto_like_button.toggled.connect(self.on_auto_like_toggled)
+        self.add_quick_button.clicked.connect(self._add_quick_reply)
+        self.del_quick_button.clicked.connect(self._del_quick_reply)
+        self.like_click_button.toggled.connect(self.on_like_click_toggled)
+        self.danmaku_add_button.clicked.connect(self._add_danmaku)
+        self.danmaku_del_button.clicked.connect(self._del_danmaku)
+        self.danmaku_start_button.toggled.connect(self.on_danmaku_toggled)
         self.transcode_button.toggled.connect(self.on_transcode_toggled)
         self._sig_create_overlay.connect(self._create_transcode_overlay)
         self.parse_debug_table.itemSelectionChanged.connect(self.on_parse_debug_selection_changed)
@@ -463,8 +520,8 @@ class MainWindow(QMainWindow):
     def _activate_mock_source(self) -> None:
         self.web_source.stop()
         self.login_status_timer.stop()
-        self.auto_like_timer.stop()
-        self.auto_like_button.setChecked(False)
+        self._stop_like_click()
+        self._stop_danmaku()
         self.mock_source.start()
         self.source = self.mock_source
         self.sender = self.mock_sender
@@ -646,18 +703,6 @@ class MainWindow(QMainWindow):
         if song:
             self.refresh_songs()
 
-        risks = self.risk_detector.detect(event)
-        for hit in risks:
-            self._append_action(
-                ActionProposal(
-                    event_id=event.id,
-                    rule_id="risk",
-                    rule_name=f"风险提示：{hit.label}",
-                    text=f"{event.display_user}: {hit.reason}",
-                    auto_send=False,
-                )
-            )
-
         proposals = self.rule_engine.evaluate(event, self.mode)
         gift_proposal = self.gift_strategy.build(event)
         if gift_proposal:
@@ -679,8 +724,6 @@ class MainWindow(QMainWindow):
         ]
         for col, value in enumerate(values):
             item = QTableWidgetItem(str(value))
-            if event.type.value == "chat" and any(word in event.display_content for word in ["带节奏", "中之人", "滚"]):
-                item.setBackground(Qt.GlobalColor.yellow)
             self.event_table.setItem(row, col, item)
         self.event_table.scrollToBottom()
 
@@ -935,18 +978,103 @@ class MainWindow(QMainWindow):
         self._append_action(proposal)
         self._try_send(proposal)
 
-    def on_auto_like_toggled(self, checked: bool) -> None:
+    def _add_quick_reply(self) -> None:
+        item = QListWidgetItem("新回复")
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+        self.quick_replies.addItem(item)
+        self.quick_replies.editItem(item)
+
+    def _del_quick_reply(self) -> None:
+        row = self.quick_replies.currentRow()
+        if row >= 0:
+            self.quick_replies.takeItem(row)
+
+    def on_like_click_toggled(self, checked: bool) -> None:
         if checked:
-            if self.source is not self.web_source:
-                self._activate_web_source()
-            self.auto_like_timer.start()
-            self.like_status_label.setText("点赞状态：自动低频点赞已启动")
+            self.like_click_button.setText("停止连点")
+            interval = self.like_interval_spin.value()
+            duration = self.like_duration_spin.value()
+            self._like_click_timer.setInterval(interval)
+            self._like_click_timer.start()
+            self._like_duration_timer.start(duration * 1000)
+            self._do_like_click()
+            self.like_status_label.setText(f"连点中：间隔{interval}ms，持续{duration}秒")
             self.like_status_label.setStyleSheet("color: #267a36;")
-            self.perform_live_like()
         else:
-            self.auto_like_timer.stop()
-            self.like_status_label.setText("点赞状态：已停止")
-            self.like_status_label.setStyleSheet("color: #666;")
+            self._stop_like_click()
+
+    def _do_like_click(self) -> None:
+        w = self.web_view.width()
+        h = self.web_view.height()
+        center = QPoint(w // 2, h // 2)
+        QTest.mouseClick(self.web_view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, center)
+
+    def _stop_like_click(self) -> None:
+        self._like_click_timer.stop()
+        self._like_duration_timer.stop()
+        self.like_click_button.setChecked(False)
+        self.like_click_button.setText("开始连点")
+        self.like_status_label.setText("连点状态：已停止")
+        self.like_status_label.setStyleSheet("color: #666;")
+
+    def _add_danmaku(self) -> None:
+        item = QListWidgetItem("新弹幕")
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+        self.danmaku_list.addItem(item)
+        self.danmaku_list.editItem(item)
+
+    def _del_danmaku(self) -> None:
+        row = self.danmaku_list.currentRow()
+        if row >= 0:
+            self.danmaku_list.takeItem(row)
+
+    def on_danmaku_toggled(self, checked: bool) -> None:
+        if checked:
+            count = self.danmaku_list.count()
+            if count == 0:
+                self.danmaku_start_button.setChecked(False)
+                return
+            self.danmaku_start_button.setText("停止弹幕")
+            self._danmaku_index = 0
+            interval = self.danmaku_interval_spin.value()
+            self._danmaku_timer.setInterval(interval * 1000)
+            self._danmaku_timer.start()
+            self._send_danmaku()
+            mode_text = "顺序" if self.danmaku_mode_combo.currentData() == "sequential" else "随机"
+            self.danmaku_status_label.setText(f"弹幕发送中：{mode_text}，间隔{interval}秒")
+            self.danmaku_status_label.setStyleSheet("color: #267a36;")
+        else:
+            self._stop_danmaku()
+
+    def _send_danmaku(self) -> None:
+        count = self.danmaku_list.count()
+        if count == 0:
+            self._stop_danmaku()
+            return
+        import random
+        if self.danmaku_mode_combo.currentData() == "random":
+            idx = random.randint(0, count - 1)
+        else:
+            idx = self._danmaku_index % count
+            self._danmaku_index += 1
+        item = self.danmaku_list.item(idx)
+        if item and item.text():
+            proposal = ActionProposal(
+                event_id="manual",
+                rule_id="danmaku-loop",
+                rule_name="循环弹幕",
+                text=item.text(),
+                auto_send=False,
+            )
+            self._append_action(proposal)
+            self._try_send(proposal)
+
+    def _stop_danmaku(self) -> None:
+        self._danmaku_timer.stop()
+        self.danmaku_start_button.setChecked(False)
+        self.danmaku_start_button.setText("开始弹幕")
+        self.danmaku_status_label.setText("弹幕状态：已停止")
+        self.danmaku_status_label.setStyleSheet("color: #666;")
 
     def on_transcode_toggled(self, checked: bool) -> None:
         self._log_debug(f"on_transcode_toggled checked={checked}")
@@ -1296,6 +1424,8 @@ class MainWindow(QMainWindow):
         overlay = QWebEngineView()
         overlay.setUrl(QUrl("http://127.0.0.1:18923/player.html"))
         self._overlay_layout.addWidget(overlay)
+        # Place overlay at leftmost before metadata arrives
+        self._splitter.insertWidget(0, self._overlay_container)
         self._overlay_container.setVisible(True)
 
         # Handle close and status via title change
@@ -1304,12 +1434,51 @@ class MainWindow(QMainWindow):
                 self._clear_overlay()
                 self._ffmpeg_proxy.stop()
                 self.transcode_button.setChecked(False)
+            elif title.startswith("DMM:meta "):
+                try:
+                    wh = title[9:].split("x")
+                    w, h = int(wh[0]), int(wh[1])
+                    self._overlay_aspect = w / h
+                    self._apply_layout_orientation(w, h)
+                    self._log_debug(f"player: {title[4:]}, aspect={self._overlay_aspect:.2f}")
+                except (ValueError, IndexError):
+                    self._log_debug(f"player: {title[4:]}")
             elif title.startswith("DMM:"):
                 self._log_debug(f"player: {title[4:]}")
 
         overlay.titleChanged.connect(on_title_changed)
         self._hls_overlay = overlay
         self._log_debug("native overlay created")
+
+    def _apply_layout_orientation(self, video_w: int, video_h: int) -> None:
+        landscape = video_w > video_h
+
+        # Rebuild web_container layout: web_view on top, event_tabs below
+        old_layout = self._web_layout
+        while old_layout.count():
+            old_layout.takeAt(0)
+        QWidget().setLayout(old_layout)
+
+        self._web_layout = QVBoxLayout(self._web_container)
+        self._web_layout.setContentsMargins(0, 0, 0, 0)
+        self._web_layout.setSpacing(2)
+        self._web_layout.addWidget(self.web_view, 1)
+        self._web_layout.addWidget(self._event_tabs_widget, 1)
+
+        # Move overlay_container to leftmost panel in splitter
+        self._splitter.insertWidget(0, self._overlay_container)
+        self._overlay_container.setVisible(True)
+
+        # Size overlay to respect aspect ratio
+        if landscape:
+            self._overlay_container.setMinimumWidth(int(200 * self._overlay_aspect))
+            self._overlay_container.setMaximumWidth(16777215)
+        else:
+            self._overlay_container.setMinimumHeight(int(200 / self._overlay_aspect))
+            self._overlay_container.setMaximumHeight(16777215)
+
+        orient = "horizontal" if landscape else "vertical"
+        self._log_debug(f"layout switched to {orient} for {video_w}x{video_h}")
 
     def _clear_overlay(self) -> None:
         if hasattr(self, '_hls_overlay') and self._hls_overlay:
@@ -1318,60 +1487,25 @@ class MainWindow(QMainWindow):
             self._hls_overlay = None
         if hasattr(self, '_overlay_container'):
             self._overlay_container.setVisible(False)
+            self._overlay_container.setMinimumSize(0, 0)
+            self._overlay_container.setMaximumSize(16777215, 16777215)
+            # Remove from splitter so it doesn't occupy space
+            self._overlay_container.setParent(None)
 
-    def perform_live_like(self) -> None:
-        if self.source is not self.web_source:
-            self.like_status_label.setText("点赞状态：请先切到 WebEngine")
-            self.like_status_label.setStyleSheet("color: #b42318;")
-            return
-        script = """
-        (() => {
-          const visible = (node) => {
-            if (!node) return false;
-            const style = getComputedStyle(node);
-            const rect = node.getBoundingClientRect();
-            return style.display !== "none" && style.visibility !== "hidden" && rect.width > 80 && rect.height > 80;
-          };
-          const candidates = [
-            ...document.querySelectorAll("video"),
-            ...document.querySelectorAll("[class*='player'], [class*='Player'], [class*='live'], [class*='Live']")
-          ].filter(visible);
-          candidates.sort((a, b) => {
-            const ar = a.getBoundingClientRect();
-            const br = b.getBoundingClientRect();
-            return (br.width * br.height) - (ar.width * ar.height);
-          });
-          const node = candidates[0] || document.elementFromPoint(window.innerWidth * 0.38, window.innerHeight * 0.45);
-          if (!node) return JSON.stringify({ ok: false, reason: "未找到直播画面区域" });
-          const rect = node.getBoundingClientRect();
-          return JSON.stringify({
-            ok: true,
-            x: Math.round(rect.left + rect.width * 0.5),
-            y: Math.round(rect.top + rect.height * 0.5),
-            tagName: node.tagName,
-            className: String(node.className || "").slice(0, 80)
-          });
-        })();
-        """
-        self.web_view.page().runJavaScript(script, self._handle_like_target)
+        # Restore event_tabs to middle panel in splitter
+        if hasattr(self, '_event_tabs_widget') and hasattr(self, '_splitter'):
+            self._splitter.insertWidget(1, self._event_tabs_widget)
 
-    def _handle_like_target(self, result: object) -> None:
-        if isinstance(result, str):
-            try:
-                result = json.loads(result)
-            except json.JSONDecodeError:
-                result = None
-        if not isinstance(result, dict) or not result.get("ok"):
-            reason = result.get("reason") if isinstance(result, dict) else "点赞定位失败"
-            self.like_status_label.setText(f"点赞状态：{reason}")
-            self.like_status_label.setStyleSheet("color: #b42318;")
-            return
-        point = QPoint(int(result.get("x", 0)), int(result.get("y", 0)))
-        QTest.mouseClick(self.web_view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, point)
-        QTest.qWait(80)
-        QTest.mouseClick(self.web_view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, point)
-        self.like_status_label.setText(f"点赞状态：已双击直播画面 {datetime.now().strftime('%H:%M:%S')}")
-        self.like_status_label.setStyleSheet("color: #267a36;")
+        # Restore web_container layout to just web_view
+        if hasattr(self, '_web_layout'):
+            old_layout = self._web_layout
+            while old_layout.count():
+                old_layout.takeAt(0)
+            QWidget().setLayout(old_layout)
+            self._web_layout = QHBoxLayout(self._web_container)
+            self._web_layout.setContentsMargins(0, 0, 0, 0)
+            self._web_layout.setSpacing(2)
+            self._web_layout.addWidget(self.web_view, 1)
 
     def refresh_songs(self) -> None:
         songs = self.song_repository.list_for_session(self.session.id)
@@ -1468,7 +1602,9 @@ class MainWindow(QMainWindow):
         self.mock_source.stop()
         self.web_source.stop()
         self.login_status_timer.stop()
-        self.auto_like_timer.stop()
+        self._like_click_timer.stop()
+        self._like_duration_timer.stop()
+        self._danmaku_timer.stop()
         self._ffmpeg_proxy.stop()
         self.web_view.setUrl(QUrl("about:blank"))
         self.session.end()
