@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
+from PySide6.QtNetwork import QNetworkCookie
 from PySide6.QtWebEngineCore import QWebEnginePage
 
 from douyin_mod_manager.senders.base import MessageSender
@@ -21,9 +22,42 @@ class WebEngineMessageSender(MessageSender):
         self._pending_text = ""
         self.can_send = False
         self.status_reason = "尚未检测"
+        self._cookies: dict[str, str] = {}
+
+        cookie_store = self.page.profile().cookieStore()
+        cookie_store.cookieAdded.connect(self._on_cookie_added)
+        cookie_store.cookieRemoved.connect(self._on_cookie_removed)
+
+    def _on_cookie_added(self, cookie: QNetworkCookie) -> None:
+        name = bytes(cookie.name()).decode("utf-8", errors="replace")
+        value = bytes(cookie.value()).decode("utf-8", errors="replace")
+        self._cookies[name] = value
+
+    def _on_cookie_removed(self, cookie: QNetworkCookie) -> None:
+        name = bytes(cookie.name()).decode("utf-8", errors="replace")
+        self._cookies.pop(name, None)
 
     def refresh_sendability(self) -> None:
-        self.page.runJavaScript(self._status_script(), self._handle_status_result)
+        cookie_store = self.page.profile().cookieStore()
+        cookie_store.loadAllCookies()
+        QTimer.singleShot(600, self._check_cookies)
+
+    def _check_cookies(self) -> None:
+        has_session = (
+            (self._cookies.get("sessionid") or "").strip() != ""
+            or (self._cookies.get("sessionid_ss") or "").strip() != ""
+        )
+        if has_session:
+            self._update_status(True, "已检测到登录Cookie（sessionid）")
+        else:
+            self._update_status(False, "未检测到登录Cookie，请先登录")
+
+    def _update_status(self, can_send: bool, reason: str) -> None:
+        changed = self.can_send != can_send or self.status_reason != reason
+        self.can_send = can_send
+        self.status_reason = reason
+        if changed:
+            self.sendability_changed.emit(can_send, reason)
 
     def send(self, text: str) -> bool:
         if not self.can_send:
@@ -77,30 +111,11 @@ class WebEngineMessageSender(MessageSender):
         self.failed.emit(reason)
         self.refresh_sendability()
 
-    def _handle_status_result(self, result: object) -> None:
-        if isinstance(result, str):
-            try:
-                result = json.loads(result)
-            except json.JSONDecodeError:
-                result = None
-        if not isinstance(result, dict):
-            self.can_send = False
-            self.status_reason = "状态检测失败"
-            self.sendability_changed.emit(self.can_send, self.status_reason)
-            return
-        self.can_send = bool(result.get("canSend"))
-        self.status_reason = str(result.get("reason") or ("可发送" if self.can_send else "不可发送"))
-        self.sendability_changed.emit(self.can_send, self.status_reason)
-
-    def _status_script(self) -> str:
-        return f"(() => JSON.stringify(({self._status_script_body()})()))();"
-
     def _status_script_body(self) -> str:
         return f"""
         () => {{
           const inputSelectors = {json.dumps(self.config.chat_input_selectors, ensure_ascii=False)};
           const buttonSelectors = {json.dumps(self.config.send_button_selectors, ensure_ascii=False)};
-          const loginSelectors = {json.dumps(self.config.login_indicator_selectors, ensure_ascii=False)};
           const isVisible = (node) => {{
             if (!node) return false;
             const style = window.getComputedStyle(node);
@@ -111,8 +126,6 @@ class WebEngineMessageSender(MessageSender):
             if (!node) return true;
             return Boolean(node.disabled || node.getAttribute("aria-disabled") === "true" || node.classList.contains("disabled"));
           }};
-          const textOf = (node) => String(node?.innerText || node?.textContent || node?.value || node?.placeholder || "").trim();
-          const loginTextPattern = /需先登[录陆]才能开始聊天|登[录陆]后.*(?:弹幕|聊天)|先登[录陆].*(?:弹幕|聊天)|未登[录陆]/i;
           const findFirst = (selectors, predicate = () => true) => {{
             for (const selector of selectors) {{
               for (const node of document.querySelectorAll(selector)) {{
@@ -121,34 +134,10 @@ class WebEngineMessageSender(MessageSender):
             }}
             return null;
           }};
-          const explicitLoginPrompt = Array.from(document.querySelectorAll("div, span, p, button, textarea, input, [contenteditable='true']"))
-            .map((node) => [node, textOf(node)])
-            .filter(([node, text]) => isVisible(node) && loginTextPattern.test(text))
-            .sort((a, b) => a[1].length - b[1].length)[0];
-          if (explicitLoginPrompt) {{
-            const matchedText = explicitLoginPrompt[1].match(loginTextPattern)?.[0] || explicitLoginPrompt[1];
-            return {{ canSend: false, reason: `检测到未登录聊天框：${{matchedText.slice(0, 24)}}` }};
-          }}
-          const loginIndicator = findFirst(loginSelectors, (node) => {{
-            if (!isVisible(node)) return false;
-            const text = textOf(node);
-            return /验证码|扫码|手机号|未登录|未登陆|login|sign in/i.test(text);
-          }});
-          if (loginIndicator) {{
-            return {{ canSend: false, reason: `检测到登录提示：${{textOf(loginIndicator).slice(0, 40)}}` }};
-          }}
           const input = findFirst(inputSelectors, (node) => isVisible(node) && !isDisabled(node));
-          if (!input) return {{ canSend: false, reason: "未找到可用弹幕输入框，可能未登录或页面未加载完成" }};
-          const inputText = textOf(input);
-          if (/登录|登陆|先登录|未登录|未登陆|login|sign in/i.test(inputText)) {{
-            return {{ canSend: false, reason: `输入框提示需要登录：${{inputText.slice(0, 40)}}` }};
-          }}
+          if (!input) return {{ canSend: false, reason: "未找到可用弹幕输入框" }};
           const button = findFirst(buttonSelectors, (node) => isVisible(node) && !isDisabled(node));
-          if (!button) return {{ canSend: false, reason: "未找到可用发送按钮，可能未登录或发送受限" }};
-          const buttonText = textOf(button);
-          if (/登录|登陆|login|sign in/i.test(buttonText)) {{
-            return {{ canSend: false, reason: `发送按钮是登录入口：${{buttonText.slice(0, 40)}}` }};
-          }}
+          if (!button) return {{ canSend: false, reason: "未找到可用发送按钮" }};
           return {{ canSend: true, reason: "已检测到可用输入框和发送按钮" }};
         }}
         """

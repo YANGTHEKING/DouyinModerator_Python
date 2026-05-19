@@ -31,12 +31,5 @@
     "button[type='submit']",
     "button.send",
     ".send-button"
-  ],
-  "login_indicator_selectors": [
-    "[data-dmm-login-required]",
-    ".login",
-    ".login-panel",
-    ".login-modal",
-    ".douyin-login"
   ]
 }
