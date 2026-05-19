@@ -208,5 +208,6 @@ def _is_non_gift_image_url(url: str) -> bool:
             "fansclub",
             "user_grade",
             "badge",
+            "fusion_emoji",
         ]
     )

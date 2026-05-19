@@ -216,8 +216,8 @@
       "diamond_count": 1,
       "image_url": "https://p3-webcast.douyinpic.com/img/webcast/bfe9acf1a1f07d122e03dd0068937267.png~tplv-obj.png",
       "first_seen": "2026-05-17T21:07:32",
-      "last_seen": "2026-05-18T01:50:40",
-      "seen_count": 16,
+      "last_seen": "2026-05-19T16:05:23",
+      "seen_count": 18,
       "source": "observed"
     },
     {
@@ -996,8 +996,8 @@
       "diamond_count": 2,
       "image_url": "https://p3-webcast.douyinpic.com/img/webcast/4960c39f645d524beda5d50dc372510e.png~tplv-obj.png",
       "first_seen": "2026-05-17T16:48:06",
-      "last_seen": "2026-05-18T19:35:59",
-      "seen_count": 77,
+      "last_seen": "2026-05-19T16:09:30",
+      "seen_count": 83,
       "source": "catalog"
     },
     {
@@ -1554,10 +1554,10 @@
       "image_key": "71801c53df3977b1470ac2afb8250ac1",
       "name": "大啤酒",
       "diamond_count": 2,
-      "image_url": "https://p11-webcast.douyinpic.com/img/webcast/71801c53df3977b1470ac2afb8250ac1.png~tplv-obj.png",
+      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/71801c53df3977b1470ac2afb8250ac1.png~tplv-obj.png",
       "first_seen": "2026-05-17T18:51:19",
-      "last_seen": "2026-05-18T19:35:03",
-      "seen_count": 30,
+      "last_seen": "2026-05-19T16:26:50",
+      "seen_count": 34,
       "source": "observed"
     },
     {
@@ -1886,8 +1886,8 @@
       "diamond_count": 1,
       "image_url": "https://p11-webcast.douyinpic.com/img/webcast/7ef47758a435313180e6b78b056dda4e.png~tplv-obj.png",
       "first_seen": "2026-05-17T18:03:09",
-      "last_seen": "2026-05-18T19:36:42",
-      "seen_count": 316,
+      "last_seen": "2026-05-19T16:37:18",
+      "seen_count": 332,
       "source": "observed"
     },
     {
@@ -3064,10 +3064,10 @@
       "image_key": "2756f07818a73a8c79f024e959665110",
       "name": "棒棒糖",
       "diamond_count": 9,
-      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/2756f07818a73a8c79f024e959665110.png~tplv-resize:45:45.png",
+      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/2756f07818a73a8c79f024e959665110.png~tplv-obj.png",
       "first_seen": "2026-05-17T19:20:53",
-      "last_seen": "2026-05-18T12:29:39",
-      "seen_count": 10,
+      "last_seen": "2026-05-19T15:51:21",
+      "seen_count": 13,
       "source": "observed"
     },
     {
@@ -4174,10 +4174,10 @@
       "image_key": "5a68ea0c85195b40dd2441c5da73a659",
       "name": "粉丝团灯牌",
       "diamond_count": 1,
-      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/5a68ea0c85195b40dd2441c5da73a659.png~tplv-obj.png",
+      "image_url": "https://p11-webcast.douyinpic.com/img/webcast/5a68ea0c85195b40dd2441c5da73a659.png~tplv-obj.png",
       "first_seen": "2026-05-18T01:19:52",
-      "last_seen": "2026-05-18T19:36:38",
-      "seen_count": 200,
+      "last_seen": "2026-05-19T15:55:56",
+      "seen_count": 204,
       "source": "observed"
     },
     {
@@ -4279,6 +4279,16 @@
       "last_seen": "",
       "seen_count": 0,
       "source": "catalog"
+    },
+    {
+      "image_key": "dce797fe6cfb55e6739ce6a6f487b09e",
+      "name": "胡萝卜",
+      "diamond_count": 0,
+      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/dce797fe6cfb55e6739ce6a6f487b09e.png~tplv-obj.png",
+      "first_seen": "2026-05-18T19:36:10",
+      "last_seen": "2026-05-18T19:36:10",
+      "seen_count": 1,
+      "source": "observed"
     },
     {
       "image_key": "7179cbc602e5aa36c91eb8f9990bba71",
@@ -4761,16 +4771,6 @@
       "source": "observed"
     },
     {
-      "image_key": "dce797fe6cfb55e6739ce6a6f487b09e",
-      "name": "送出了",
-      "diamond_count": 0,
-      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/dce797fe6cfb55e6739ce6a6f487b09e.png~tplv-obj.png",
-      "first_seen": "2026-05-18T19:36:10",
-      "last_seen": "2026-05-18T19:36:10",
-      "seen_count": 1,
-      "source": "observed"
-    },
-    {
       "image_key": "615e117f7125f467225c117971be05e6",
       "name": "造梦工厂",
       "diamond_count": 12688,
@@ -5207,76 +5207,6 @@
       "image_url": "https://lf6-webcastcdn-tos.douyinstatic.com/obj/webcast/7586759991441380352.png",
       "first_seen": "2026-05-18T02:20:44",
       "last_seen": "2026-05-18T02:20:44",
-      "seen_count": 1,
-      "source": "observed"
-    },
-    {
-      "image_key": "https://p11-webcast.douyinpic.com/img/webcast/fusion_emoji/006--007--facenoface.png~tplv-resize:78:78.image",
-      "name": "",
-      "diamond_count": 0,
-      "image_url": "https://p11-webcast.douyinpic.com/img/webcast/fusion_emoji/006--007--facenoface.png~tplv-resize:78:78.image",
-      "first_seen": "2026-05-18T02:28:15",
-      "last_seen": "2026-05-19T01:44:27",
-      "seen_count": 2,
-      "source": "observed"
-    },
-    {
-      "image_key": "https://p3-webcast.douyinpic.com/img/webcast/fusion_emoji/005--013--eyeeyebrow.png~tplv-resize:78:78.image",
-      "name": "",
-      "diamond_count": 0,
-      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/fusion_emoji/005--013--eyeeyebrow.png~tplv-resize:78:78.image",
-      "first_seen": "2026-05-19T01:34:28",
-      "last_seen": "2026-05-19T01:34:28",
-      "seen_count": 1,
-      "source": "observed"
-    },
-    {
-      "image_key": "https://p3-webcast.douyinpic.com/img/webcast/fusion_emoji/006--007--facenoface.png~tplv-resize:78:78.image",
-      "name": "",
-      "diamond_count": 0,
-      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/fusion_emoji/006--007--facenoface.png~tplv-resize:78:78.image",
-      "first_seen": "2026-05-19T01:44:27",
-      "last_seen": "2026-05-19T01:44:27",
-      "seen_count": 1,
-      "source": "observed"
-    },
-    {
-      "image_key": "https://p3-webcast.douyinpic.com/img/webcast/fusion_emoji/017--009--hand.png~tplv-resize:78:78.image",
-      "name": "",
-      "diamond_count": 0,
-      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/fusion_emoji/017--009--hand.png~tplv-resize:78:78.image",
-      "first_seen": "2026-05-18T03:07:38",
-      "last_seen": "2026-05-18T03:07:38",
-      "seen_count": 1,
-      "source": "observed"
-    },
-    {
-      "image_key": "https://p3-webcast.douyinpic.com/img/webcast/fusion_emoji/048--055--eyemark-tears.png~tplv-resize:78:78.image",
-      "name": "",
-      "diamond_count": 0,
-      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/fusion_emoji/048--055--eyemark-tears.png~tplv-resize:78:78.image",
-      "first_seen": "2026-05-19T01:46:35",
-      "last_seen": "2026-05-19T01:46:35",
-      "seen_count": 1,
-      "source": "observed"
-    },
-    {
-      "image_key": "https://p3-webcast.douyinpic.com/img/webcast/fusion_emoji/049--067--mouthmark-tonguemark-bloodmark-salivamark-heart.png~tplv-resize:78:78.image",
-      "name": "",
-      "diamond_count": 0,
-      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/fusion_emoji/049--067--mouthmark-tonguemark-bloodmark-salivamark-heart.png~tplv-resize:78:78.image",
-      "first_seen": "2026-05-19T01:48:58",
-      "last_seen": "2026-05-19T01:48:58",
-      "seen_count": 1,
-      "source": "observed"
-    },
-    {
-      "image_key": "https://p3-webcast.douyinpic.com/img/webcast/fusion_emoji/120--092--handmouth.png~tplv-resize:78:78.image",
-      "name": "",
-      "diamond_count": 0,
-      "image_url": "https://p3-webcast.douyinpic.com/img/webcast/fusion_emoji/120--092--handmouth.png~tplv-resize:78:78.image",
-      "first_seen": "2026-05-19T01:52:39",
-      "last_seen": "2026-05-19T01:52:39",
       "seen_count": 1,
       "source": "observed"
     }
