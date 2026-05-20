@@ -253,7 +253,7 @@ class MainWindow(QMainWindow):
 
         controls = QHBoxLayout()
         self.url_input = QLineEdit()
-        self.url_input.setText("88162227205")
+        self.url_input.setText("730660348009")
         self.url_input.setPlaceholderText("输入抖音直播房间号")
         self.load_url_button = QPushButton("加载")
         self.load_demo_button = QPushButton("Demo")
@@ -582,6 +582,10 @@ class MainWindow(QMainWindow):
         self.action_list.clear()
         self.session = LiveSession(name=f"虚拟主播场次 {datetime.now().strftime('%H:%M')}")
         self.database.save_session(self.session)
+        for entry in self.gift_image_registry.entries.values():
+            entry.seen_count = 0
+        self.gift_image_registry.save()
+        self.refresh_gift_image_table(self._gift_sort_by)
         self.web_view.setUrl(QUrl(self._douyin_live_url(room_or_url)))
         self._activate_web_source()
         QTimer.singleShot(2000, self.start_dom_button.click)
