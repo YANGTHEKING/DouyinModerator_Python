@@ -723,7 +723,7 @@ class MainWindow(QMainWindow):
 
         for proposal in proposals:
             self._append_action(proposal)
-            if proposal.auto_send:
+            if proposal.auto_send and not self.auto_paused:
                 self._try_send(proposal)
 
     def _append_event(self, event: LiveEvent, ts: str | None = None) -> None:
@@ -947,8 +947,9 @@ class MainWindow(QMainWindow):
         self.action_list.scrollToBottom()
 
     def _try_send(self, proposal: ActionProposal) -> bool:
-        if self.auto_paused:
-            return False
+        import sys
+        sys.stderr.write(f"[DMM-TrySend] can_send={self.web_sender.can_send if self.sender is self.web_sender else 'N/A'}, text={proposal.text[:30]!r}\n")
+        sys.stderr.flush()
         if self.sender is self.web_sender and not self.web_sender.can_send:
             self.statusBar().showMessage(f"WebEngine 当前不可发送：{self.web_sender.status_reason}")
             self.web_sender.refresh_sendability()
