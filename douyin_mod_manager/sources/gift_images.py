@@ -35,6 +35,7 @@ class GiftImageRegistry:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or Path(__file__).resolve().parents[2] / "data" / "gift_image_mappings.json"
         self.entries: dict[str, GiftImageEntry] = {}
+        self._dirty = False
         self.load()
 
     def load(self) -> None:
@@ -75,6 +76,17 @@ class GiftImageRegistry:
             )
 
     def save(self) -> None:
+        self._write()
+        self._dirty = False
+
+    def mark_dirty(self) -> None:
+        self._dirty = True
+
+    def flush(self) -> None:
+        if self._dirty:
+            self.save()
+
+    def _write(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "images": [
@@ -134,7 +146,7 @@ class GiftImageRegistry:
                 entry.name = gift_name.strip()
             changed = True
         if changed:
-            self.save()
+            self.mark_dirty()
         return changed
 
 

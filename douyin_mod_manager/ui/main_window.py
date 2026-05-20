@@ -154,6 +154,14 @@ class MainWindow(QMainWindow):
         self._danmaku_timer = QTimer(self)
         self._danmaku_timer.timeout.connect(self._send_danmaku)
         self._danmaku_index = 0
+        self._gift_table_debounce_timer = QTimer(self)
+        self._gift_table_debounce_timer.setSingleShot(True)
+        self._gift_table_debounce_timer.setInterval(500)
+        self._gift_table_debounce_timer.timeout.connect(lambda: self.refresh_gift_image_table(self._gift_sort_by))
+        self._gift_flush_timer = QTimer(self)
+        self._gift_flush_timer.setInterval(3000)
+        self._gift_flush_timer.timeout.connect(self.gift_image_registry.flush)
+        self._gift_flush_timer.start()
 
         self._connect_signals()
         self._activate_web_source()
@@ -582,6 +590,7 @@ class MainWindow(QMainWindow):
         self.action_list.clear()
         self.session = LiveSession(name=f"虚拟主播场次 {datetime.now().strftime('%H:%M')}")
         self.database.save_session(self.session)
+        self.gift_image_registry.flush()
         for entry in self.gift_image_registry.entries.values():
             entry.seen_count = 0
         self.gift_image_registry.save()
@@ -738,7 +747,7 @@ class MainWindow(QMainWindow):
         parsed = payload.get("parsed") if isinstance(payload.get("parsed"), dict) else None
         gift_name = parsed.get("gift_name") if isinstance(parsed, dict) and isinstance(parsed.get("gift_name"), str) else None
         if self.gift_image_registry.record_raw(raw, gift_name):
-            self.refresh_gift_image_table(self._gift_sort_by)
+            self._gift_table_debounce_timer.start()
         labels = raw.get("mediaLabels") if isinstance(raw.get("mediaLabels"), list) else []
         parsed_summary = ""
         if parsed:
@@ -1609,6 +1618,8 @@ class MainWindow(QMainWindow):
         self._like_click_timer.stop()
         self._like_duration_timer.stop()
         self._danmaku_timer.stop()
+        self._gift_flush_timer.stop()
+        self.gift_image_registry.flush()
         self._ffmpeg_proxy.stop()
         self.web_view.setUrl(QUrl("about:blank"))
         self.session.end()
