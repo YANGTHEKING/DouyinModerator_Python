@@ -4,12 +4,22 @@ from douyin_mod_manager.core.events import ActionProposal, EventType, LiveEvent
 
 
 class GiftThanksStrategy:
+    _SPECIAL_MEMBERSHIPS = {"星守护", "月度会员"}
+
     def build(self, event: LiveEvent) -> ActionProposal | None:
         if event.type != EventType.GIFT:
             return None
-        value = int(event.raw.get("gift_value", 0))
         gift = event.raw.get("gift_name", "礼物")
         count = event.raw.get("gift_count", 1)
+        if gift in self._SPECIAL_MEMBERSHIPS:
+            return ActionProposal(
+                event_id=event.id,
+                rule_id="gift-thanks",
+                rule_name="礼物感谢策略",
+                text=f"恭喜 {event.display_user} 成为{gift}！建议主播/房管口播感谢。",
+                auto_send=False,
+            )
+        value = int(event.raw.get("gift_value", 0))
         if value <= 2:
             text = f"谢谢 {event.display_user} 的 {gift} x{count}，小礼物合并感谢中。"
             auto = True

@@ -64,7 +64,20 @@ def normalize_dom_record(record: dict) -> ParsedDomRecord | None:
                 event_type = "chat"
                 username, content = split
     elif event_type == "system":
-        username, content = normalize_system_fields(username, content or visible_text)
+        sys_text = " ".join((content or visible_text or "").split())
+        if re.search(r"成为No\.\d+.*贡献用户", sys_text):
+            return None
+        special_gift = re.search(r"恭喜\s*(.+?)\s*成为(星守护|月度会员)", sys_text)
+        if special_gift:
+            event_type = "gift"
+            username = special_gift.group(1).strip()
+            content = special_gift.group(2)
+            raw["gift_name"] = content
+            raw["gift_count"] = 1
+            raw["gift_value"] = 0
+            username, content, raw = normalize_gift_fields(username, content, visible_text, raw)
+        else:
+            username, content = normalize_system_fields(username, content or visible_text)
 
     if event_type == "chat" and username and (is_gift_action_content(content) or has_gift_color(raw)):
         event_type = "gift"
