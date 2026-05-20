@@ -67,6 +67,8 @@ def normalize_dom_record(record: dict) -> ParsedDomRecord | None:
         sys_text = " ".join((content or visible_text or "").split())
         if re.search(r"成为No\.\d+.*贡献用户", sys_text):
             return None
+        if "成功冠名了" in sys_text:
+            return None
         special_gift = re.search(r"恭喜\s*(.+?)\s*成为(星守护|月度会员)", sys_text)
         if special_gift:
             event_type = "gift"
