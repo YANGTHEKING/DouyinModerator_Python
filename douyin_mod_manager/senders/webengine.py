@@ -69,27 +69,48 @@ class WebEngineMessageSender(MessageSender):
           const text = {json.dumps(text, ensure_ascii=False)};
           const inputSelectors = {json.dumps(self.config.chat_input_selectors, ensure_ascii=False)};
           const buttonSelectors = {json.dumps(self.config.send_button_selectors, ensure_ascii=False)};
-          const findFirst = (selectors) => {{
+          const findFirst = (selectors, predicate = () => true) => {{
             for (const selector of selectors) {{
-              const node = document.querySelector(selector);
-              if (node) return node;
+              for (const node of document.querySelectorAll(selector)) {{
+                if (predicate(node)) return node;
+              }}
             }}
             return null;
           }};
-          const status = ({self._status_script_body()})();
-          if (!status.canSend) return JSON.stringify({{ ok: false, reason: status.reason }});
-          const input = findFirst(inputSelectors);
+          const isVisible = (node) => {{
+            if (!node) return false;
+            const style = window.getComputedStyle(node);
+            const rect = node.getBoundingClientRect();
+            return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+          }};
+          const isDisabled = (node) => {{
+            if (!node) return true;
+            return Boolean(node.disabled || node.getAttribute("aria-disabled") === "true" || node.classList.contains("disabled"));
+          }};
+          const input = findFirst(inputSelectors, (node) => isVisible(node) && !isDisabled(node));
+          if (!input) return JSON.stringify({{ ok: false, reason: "未找到弹幕输入框" }});
           input.focus();
           if (input.isContentEditable) {{
-            input.innerText = text;
+            document.execCommand("selectAll", false);
+            document.execCommand("insertText", false, text);
           }} else {{
-            input.value = text;
+            var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set
+                      || Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+            if (setter) setter.call(input, text);
+            else input.value = text;
+            input.dispatchEvent(new Event("input", {{ bubbles: true }}));
           }}
-          input.dispatchEvent(new InputEvent("input", {{ bubbles: true, inputType: "insertText", data: text }}));
           input.dispatchEvent(new Event("change", {{ bubbles: true }}));
-          const button = findFirst(buttonSelectors);
-          if (!button) return JSON.stringify({{ ok: false, reason: "未找到发送按钮" }});
-          button.click();
+          var button = findFirst(buttonSelectors, (node) => isVisible(node) && !isDisabled(node));
+          if (!button) {{
+            button = document.querySelector('button[class*="send"]')
+                  || document.querySelector('[data-e2e="chat-send-btn"]');
+          }}
+          if (button && isVisible(button)) {{
+            setTimeout(function() {{ button.click(); }}, 200);
+          }} else {{
+            input.dispatchEvent(new KeyboardEvent("keydown", {{ key: "Enter", keyCode: 13, bubbles: true }}));
+          }}
           return JSON.stringify({{ ok: true }});
         }})();
         """
@@ -97,6 +118,9 @@ class WebEngineMessageSender(MessageSender):
         return True
 
     def _handle_result(self, result: object) -> None:
+        import sys
+        sys.stderr.write(f"[DMM-Send] result: {result!r}\n")
+        sys.stderr.flush()
         if isinstance(result, str):
             try:
                 result = json.loads(result)
@@ -136,7 +160,12 @@ class WebEngineMessageSender(MessageSender):
           }};
           const input = findFirst(inputSelectors, (node) => isVisible(node) && !isDisabled(node));
           if (!input) return {{ canSend: false, reason: "未找到可用弹幕输入框" }};
-          const button = findFirst(buttonSelectors, (node) => isVisible(node) && !isDisabled(node));
+          var button = findFirst(buttonSelectors, (node) => isVisible(node) && !isDisabled(node));
+          if (!button) {{
+            button = document.querySelector('button[class*="send"]')
+                  || document.querySelector('[data-e2e="chat-send-btn"]');
+            if (!button || !isVisible(button)) button = null;
+          }}
           if (!button) return {{ canSend: false, reason: "未找到可用发送按钮" }};
           return {{ canSend: true, reason: "已检测到可用输入框和发送按钮" }};
         }}
