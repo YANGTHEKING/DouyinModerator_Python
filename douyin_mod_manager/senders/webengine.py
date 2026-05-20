@@ -32,6 +32,9 @@ class WebEngineMessageSender(MessageSender):
         name = bytes(cookie.name()).decode("utf-8", errors="replace")
         value = bytes(cookie.value()).decode("utf-8", errors="replace")
         self._cookies[name] = value
+        import sys
+        sys.stderr.write(f"[DMM-Cookie] added: {name}={value[:40]}\n")
+        sys.stderr.flush()
 
     def _on_cookie_removed(self, cookie: QNetworkCookie) -> None:
         name = bytes(cookie.name()).decode("utf-8", errors="replace")
@@ -43,10 +46,13 @@ class WebEngineMessageSender(MessageSender):
         QTimer.singleShot(600, self._check_cookies)
 
     def _check_cookies(self) -> None:
+        import sys
         has_session = (
             (self._cookies.get("sessionid") or "").strip() != ""
             or (self._cookies.get("sessionid_ss") or "").strip() != ""
         )
+        sys.stderr.write(f"[DMM-Cookie] check: total={len(self._cookies)}, keys={list(self._cookies.keys())}, has_session={has_session}\n")
+        sys.stderr.flush()
         if has_session:
             self._update_status(True, "已检测到登录Cookie（sessionid）")
         else:
