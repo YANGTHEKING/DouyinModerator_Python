@@ -37,14 +37,20 @@ class DomSelectorConfig:
     chat_input_selectors: list[str] = field(
         default_factory=lambda: [
             "[data-dmm-chat-input]",
+            "[data-e2e*='chat-input']",
+            "[data-e2e*='comment-input']",
+            "[data-e2e*='danmaku-input']",
+            "[role='textbox']",
+            "[contenteditable]",
             "textarea",
             "input[type='text']",
-            "[contenteditable='true']",
         ]
     )
     send_button_selectors: list[str] = field(
         default_factory=lambda: [
             "[data-dmm-send]",
+            "[data-e2e='chat-send-btn']",
+            "[data-e2e*='send']",
             "button[type='submit']",
             "button.send",
             ".send-button",

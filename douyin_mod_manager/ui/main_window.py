@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -124,6 +125,7 @@ class MainWindow(QMainWindow):
         self.limiter = SlidingWindowLimiter(max_events=3, window_seconds=60)
         self.auto_paused = True
         self._pending_action_by_text: dict[str, ActionProposal] = {}
+        self._debug_autosend_done = False
         self.source = None
         self.gift_image_registry = GiftImageRegistry()
         self._refreshing_gift_image_table = False
@@ -141,7 +143,7 @@ class MainWindow(QMainWindow):
         self.mock_source = MockEventSource(self.session.id)
         self.web_source = WebEngineDomEventSource(self.web_view.page(), self.session.id)
         self.mock_sender = MockMessageSender()
-        self.web_sender = WebEngineMessageSender(self.web_view.page())
+        self.web_sender = WebEngineMessageSender(self.web_view.page(), view=self.web_view)
         self.sender = self.mock_sender
         self.login_status_timer = QTimer(self)
         self.login_status_timer.setInterval(5000)
@@ -261,7 +263,7 @@ class MainWindow(QMainWindow):
 
         controls = QHBoxLayout()
         self.url_input = QLineEdit()
-        self.url_input.setText("730660348009")
+        self.url_input.setText(os.environ.get("DMM_DEFAULT_ROOM", "730660348009"))
         self.url_input.setPlaceholderText("输入抖音直播房间号")
         self.load_url_button = QPushButton("加载")
         self.load_demo_button = QPushButton("Demo")
@@ -397,6 +399,7 @@ class MainWindow(QMainWindow):
             "当前暂不接点歌，感谢理解。",
         ]:
             self.quick_replies.addItem(text)
+        self.quick_replies.setCurrentRow(0)
         self.quick_replies.setEditTriggers(QListWidget.EditTrigger.DoubleClicked)
         layout.addWidget(self.quick_replies, 1)
         quick_buttons = QHBoxLayout()
@@ -567,6 +570,17 @@ class MainWindow(QMainWindow):
         color = "#267a36" if can_send else "#b42318"
         self.login_status_label.setText(f"登录/发送状态：{prefix} - {reason}")
         self.login_status_label.setStyleSheet(f"color: {color};")
+        debug_text = os.environ.get("DMM_AUTOSEND_TEXT")
+        if can_send and debug_text and not self._debug_autosend_done:
+            self._debug_autosend_done = True
+            proposal = ActionProposal(
+                event_id="manual",
+                rule_id="debug-autosend",
+                rule_name="调试发送",
+                text=debug_text,
+                auto_send=False,
+            )
+            QTimer.singleShot(1000, lambda proposal=proposal: self._try_send(proposal))
 
     def on_web_sent(self, text: str) -> None:
         self.statusBar().showMessage(f"WebEngine 已发送：{text}")
@@ -947,9 +961,6 @@ class MainWindow(QMainWindow):
         self.action_list.scrollToBottom()
 
     def _try_send(self, proposal: ActionProposal) -> bool:
-        import sys
-        sys.stderr.write(f"[DMM-TrySend] can_send={self.web_sender.can_send if self.sender is self.web_sender else 'N/A'}, text={proposal.text[:30]!r}\n")
-        sys.stderr.flush()
         if self.sender is self.web_sender and not self.web_sender.can_send:
             self.statusBar().showMessage(f"WebEngine 当前不可发送：{self.web_sender.status_reason}")
             self.web_sender.refresh_sendability()
@@ -981,6 +992,7 @@ class MainWindow(QMainWindow):
     def send_quick_reply(self) -> None:
         item = self.quick_replies.currentItem()
         if item is None:
+            self.statusBar().showMessage("请先选择一条快捷回复")
             return
         proposal = ActionProposal(
             event_id="manual",

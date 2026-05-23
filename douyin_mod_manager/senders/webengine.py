@@ -164,24 +164,36 @@ class WebEngineMessageSender(MessageSender):
 
     def _fill_and_submit_via_js(self, text: str) -> None:
         escaped = json.dumps(text, ensure_ascii=False)
-        script = f"""
-        (() => {{
-          {self._dom_helper_script()}
-          const input = findInput({json.dumps(self.config.chat_input_selectors, ensure_ascii=False)});
-          if (!input) return JSON.stringify({{ ok: false, reason: "点击后未找到输入框" }});
-          input.focus();
-          fillInput(input, {escaped});
-          const button = findSendButton({json.dumps(self.config.send_button_selectors, ensure_ascii=False)});
-          if (button) {{
-            setTimeout(() => button.click(), 100);
-            return JSON.stringify({{ ok: true, method: "button" }});
-          }}
-          input.dispatchEvent(new KeyboardEvent("keydown", {{ key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }}));
-          input.dispatchEvent(new KeyboardEvent("keyup", {{ key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }}));
-          return JSON.stringify({{ ok: true, method: "enter" }});
-        }})();
-        """
-        self.page.runJavaScript(script, self._handle_js_submit_result)
+        input_selectors = json.dumps(self.config.chat_input_selectors, ensure_ascii=False)
+        button_selectors = json.dumps(self.config.send_button_selectors, ensure_ascii=False)
+        inject = self._dom_helper_script()
+        script = (
+            "try {\n"
+            f"var inputSelectors = {input_selectors};\n"
+            f"var buttonSelectors = {button_selectors};\n"
+            f"{inject}\n"
+            f"var __dmmInput = input;\n"
+            f"if (!__dmmInput) {{ window.__dmmSendResult = {{ ok: false, reason: '点击后未找到输入框' }}; }}\n"
+            f"else {{\n"
+            f"  __dmmInput.focus();\n"
+            f"  fillInput(__dmmInput, {escaped});\n"
+            f"  var __dmmBtn = findSendButton(buttonSelectors);\n"
+            f"  if (__dmmBtn) {{ setTimeout(function() {{ __dmmBtn.click(); }}, 100); window.__dmmSendResult = {{ ok: true, method: 'button' }}; }}\n"
+            f"  else {{\n"
+            f"    __dmmInput.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));\n"
+            f"    __dmmInput.dispatchEvent(new KeyboardEvent('keyup', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));\n"
+            f"    window.__dmmSendResult = {{ ok: true, method: 'enter' }};\n"
+            f"  }}\n"
+            f"}}\n"
+            "} catch(e) { window.__dmmSendResult = { ok: false, reason: 'JS异常: ' + e.message }; }"
+        )
+        self.page.runJavaScript(script, lambda _: QTimer.singleShot(200, self._read_send_result))
+
+    def _read_send_result(self) -> None:
+        self.page.runJavaScript(
+            "JSON.stringify(window.__dmmSendResult || {ok:false,reason:'无结果'})",
+            self._handle_js_submit_result,
+        )
 
     def _handle_js_submit_result(self, result: object) -> None:
         raw = result

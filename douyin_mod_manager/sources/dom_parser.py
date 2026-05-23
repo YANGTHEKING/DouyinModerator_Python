@@ -101,7 +101,7 @@ def normalize_dom_record(record: dict) -> ParsedDomRecord | None:
                 if labels:
                     content = " ".join(labels)
                 elif username:
-                    content = chat_content_after_prefix(split_source)
+                    content = chat_content_after_prefix(split_source) or split_source
 
     if username and content and content.startswith(username):
         stripped = content.removeprefix(username).strip()
